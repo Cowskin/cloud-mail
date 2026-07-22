@@ -9,6 +9,31 @@ import dayjs from 'dayjs';
 const MAX_BATCH_SIZE = 500;
 const WRITE_CHUNK_SIZE = 25;
 const MAX_PAGE_SIZE = 100;
+let groupSchemaReady = false;
+
+async function ensureGroupSchema(c) {
+	if (groupSchemaReady) return;
+	await c.env.db.batch([
+		c.env.db.prepare(`CREATE TABLE IF NOT EXISTS inbox_batch_group (
+			group_id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, owner_id INTEGER NOT NULL,
+			category TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '', protected INTEGER NOT NULL DEFAULT 0,
+			is_del INTEGER NOT NULL DEFAULT 0, create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+			update_time DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`),
+		c.env.db.prepare(`CREATE TABLE IF NOT EXISTS inbox_batch_member (
+			member_id INTEGER PRIMARY KEY AUTOINCREMENT, group_id INTEGER NOT NULL, account_id INTEGER NOT NULL,
+			email TEXT NOT NULL, deleted_with_group INTEGER NOT NULL DEFAULT 0,
+			create_time DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`),
+		c.env.db.prepare('CREATE INDEX IF NOT EXISTS idx_inbox_group_owner ON inbox_batch_group(owner_id, is_del)'),
+		c.env.db.prepare('CREATE UNIQUE INDEX IF NOT EXISTS idx_inbox_member_account ON inbox_batch_member(account_id)'),
+		c.env.db.prepare('CREATE INDEX IF NOT EXISTS idx_inbox_member_group ON inbox_batch_member(group_id)'),
+		c.env.db.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS idx_user_batch_request_id
+			ON user_batch(json_extract(rule_json, '$.requestId'))
+			WHERE json_extract(rule_json, '$.requestId') IS NOT NULL`)
+	]);
+	groupSchemaReady = true;
+}
 
 function pagination(params, defaultSize = 20) {
 	const page = Math.max(1, Number(params.page) || 1);
@@ -29,6 +54,7 @@ const userBatchService = {
 		const batchName = String(params.batchName || '').trim();
 		const rule = params.rule || {};
 		const mode = params.mode === 'inbox' ? 'inbox' : 'user';
+		if (mode === 'inbox') await ensureGroupSchema(c);
 		rule.mode = mode;
 		const requestId = String(params.requestId || '').trim().slice(0, 80);
 		if (requestId) {
@@ -311,6 +337,7 @@ const userBatchService = {
 	},
 
 	async groupList(c, params) {
+		await ensureGroupSchema(c);
 		const ownerId = c.get('user').userId;
 		const deleted = params.deleted === '1' ? 1 : 0;
 		const keyword = String(params.keyword || '').trim();
@@ -333,6 +360,7 @@ const userBatchService = {
 	},
 
 	async groupMembers(c, params) {
+		await ensureGroupSchema(c);
 		const groupId = Number(params.groupId);
 		if (!groupId) throw new BizError('请选择分组');
 		await this.requireOwnedGroup(c, groupId, true);
@@ -358,6 +386,7 @@ const userBatchService = {
 	},
 
 	async requireOwnedGroup(c, groupId, includeDeleted = false) {
+		await ensureGroupSchema(c);
 		const ownerId = c.get('user').userId;
 		const row = await c.env.db.prepare(`SELECT group_id AS groupId, name, protected, is_del AS isDel FROM inbox_batch_group WHERE group_id = ? AND owner_id = ?`)
 			.bind(groupId, ownerId).first();
