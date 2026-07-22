@@ -115,6 +115,7 @@ const userBatchService = {
 	async list(c, params) {
 		const keyword = String(params.keyword || '').trim();
 		const domain = String(params.domain || '').trim();
+		const category = String(params.category || '').trim();
 		const resultStatus = String(params.resultStatus || '');
 		const conditions = [];
 		const bindings = [];
@@ -126,6 +127,11 @@ const userBatchService = {
 			conditions.push("json_extract(rule_json, '$.suffix') = ?");
 			bindings.push(domain);
 		}
+		if (category) {
+			conditions.push("json_extract(rule_json, '$.category') = ?");
+			bindings.push(category);
+		}
+		if (params.archived !== '1') conditions.push("COALESCE(json_extract(rule_json, '$.archived'), 0) = 0");
 		if (resultStatus === 'success') conditions.push('success_count = total');
 		if (resultStatus === 'partial') conditions.push('success_count > 0 AND failed_count > 0');
 		if (resultStatus === 'failed') conditions.push('success_count = 0 AND failed_count > 0');
@@ -148,9 +154,16 @@ const userBatchService = {
 				operator_id AS operatorId, create_time AS createTime
 			FROM user_batch ${condition} ORDER BY batch_id DESC LIMIT ? OFFSET ?
 		`).bind(...bindings, size, offset).all();
+		const { results: categoryRows } = await c.env.db.prepare(`
+			SELECT DISTINCT json_extract(rule_json, '$.category') AS category
+			FROM user_batch
+			WHERE COALESCE(json_extract(rule_json, '$.category'), '') <> ''
+			ORDER BY category LIMIT 100
+		`).all();
 		return {
 			list: results.map(item => ({ ...item, rule: JSON.parse(item.ruleJson || '{}') })),
-			total: Number(totalRow?.total || 0), page, size
+			total: Number(totalRow?.total || 0), page, size,
+			categories: categoryRows.map(item => item.category)
 		};
 	},
 
@@ -180,6 +193,35 @@ const userBatchService = {
 			FROM user_batch_item WHERE ${where} ORDER BY item_id ASC LIMIT ? OFFSET ?
 		`).bind(...bindings, limit, queryOffset).all();
 		return { list: results, total: Number(totalRow?.total || 0), page, size };
+	},
+
+	async update(c, params) {
+		const batchId = Number(params.batchId);
+		const name = String(params.name || '').trim();
+		if (!batchId) throw new BizError('请选择批次');
+		if (!name) throw new BizError('请输入批次名称');
+		if (name.length > 40) throw new BizError('批次名称最多 40 个字符');
+		const row = await c.env.db.prepare('SELECT rule_json AS ruleJson FROM user_batch WHERE batch_id = ?').bind(batchId).first();
+		if (!row) throw new BizError('批次不存在');
+		const rule = JSON.parse(row.ruleJson || '{}');
+		rule.category = String(params.category || '').trim().slice(0, 30);
+		rule.note = String(params.note || '').trim().slice(0, 200);
+		rule.archived = params.archived ? 1 : 0;
+		await c.env.db.prepare('UPDATE user_batch SET name = ?, rule_json = ? WHERE batch_id = ?')
+			.bind(name, JSON.stringify(rule), batchId).run();
+		return { batchId };
+	},
+
+	async delete(c, params) {
+		const batchId = Number(params.batchId);
+		if (!batchId) throw new BizError('请选择批次');
+		const batch = await c.env.db.prepare('SELECT batch_id AS batchId FROM user_batch WHERE batch_id = ?').bind(batchId).first();
+		if (!batch) throw new BizError('批次不存在');
+		await c.env.db.batch([
+			c.env.db.prepare('DELETE FROM user_batch_item WHERE batch_id = ?').bind(batchId),
+			c.env.db.prepare('DELETE FROM user_batch WHERE batch_id = ?').bind(batchId)
+		]);
+		return { batchId };
 	}
 };
 

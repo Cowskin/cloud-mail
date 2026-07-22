@@ -10,6 +10,7 @@
         <section class="rule-section">
           <el-form label-position="top" class="rule-grid">
             <el-form-item label="批次名称"><el-input v-model="form.batchName" maxlength="40" placeholder="例如：市场活动 A 组" /></el-form-item>
+            <el-form-item label="分类"><el-input v-model="form.category" maxlength="30" placeholder="例如：客户、测试、活动" /></el-form-item>
             <el-form-item label="邮箱域名"><el-select v-model="form.suffix"><el-option v-for="domain in settingStore.domainList" :key="domain" :label="domain" :value="domain" /></el-select></el-form-item>
             <el-form-item label="邮箱前缀"><el-input v-model="form.prefix" maxlength="30" placeholder="user" /></el-form-item>
             <el-form-item label="分隔符"><el-select v-model="form.separator"><el-option label="无" value="" /><el-option label="短横线 -" value="-" /><el-option label="下划线 _" value="_" /><el-option label="点号 ." value="." /></el-select></el-form-item>
@@ -20,10 +21,11 @@
             <el-form-item label="密码规则"><el-segmented v-model="form.passwordMode" :options="passwordModes" /></el-form-item>
             <el-form-item v-if="form.passwordMode === 'random'" label="密码长度"><el-input-number v-model="form.passwordLength" :min="8" :max="32" controls-position="right" /></el-form-item>
             <el-form-item v-else label="统一密码"><el-input v-model="form.fixedPassword" type="password" show-password maxlength="64" /></el-form-item>
+            <el-form-item label="备注"><el-input v-model="form.note" maxlength="200" show-word-limit placeholder="选填，记录用途或负责人" /></el-form-item>
           </el-form>
           <div class="actions">
             <el-button @click="generatePreview"><Icon icon="solar:eye-outline" />生成预览</el-button>
-            <el-button type="primary" :loading="creating" :disabled="!preview.length" @click="createBatch"><Icon icon="fluent:people-add-24-regular" />创建 {{ preview.length }} 个账号</el-button>
+            <el-button type="primary" :loading="creating" :disabled="!preview.length || previewCreated" @click="createBatch"><Icon icon="fluent:people-add-24-regular" />{{ previewCreated ? '本批次已创建' : `创建 ${preview.length} 个账号` }}</el-button>
           </div>
         </section>
         <section v-if="preview.length" class="preview-section">
@@ -40,10 +42,12 @@
         <section class="history-filters">
           <el-input v-model="batchQuery.keyword" clearable placeholder="批次名或邮箱前缀" @keyup.enter="searchBatches"><template #prefix><Icon icon="iconoir:search" /></template></el-input>
           <el-select v-model="batchQuery.domain" clearable placeholder="全部域名"><el-option v-for="domain in settingStore.domainList" :key="domain" :label="domain" :value="domain" /></el-select>
+          <el-select v-model="batchQuery.category" clearable placeholder="全部分类"><el-option v-for="category in categories" :key="category" :label="category" :value="category" /></el-select>
           <el-select v-model="batchQuery.resultStatus" clearable placeholder="全部结果"><el-option label="全部成功" value="success" /><el-option label="部分失败" value="partial" /><el-option label="全部失败" value="failed" /></el-select>
           <el-date-picker v-model="batchDates" type="daterange" value-format="YYYY-MM-DD" start-placeholder="开始日期" end-placeholder="结束日期" unlink-panels />
           <el-button type="primary" @click="searchBatches"><Icon icon="iconoir:search" />筛选</el-button>
           <el-button :disabled="!hasBatchFilters" @click="resetBatchFilters">重置</el-button>
+          <el-checkbox v-model="batchQuery.archived" true-value="1" false-value="0" @change="searchBatches">查看已归档</el-checkbox>
         </section>
 
         <div class="summary-strip">
@@ -54,16 +58,17 @@
         <div class="history-layout">
           <section class="batch-list">
             <el-table :data="batches" highlight-current-row height="500" v-loading="batchLoading" @current-change="selectBatch">
-              <el-table-column prop="name" label="批次" min-width="160"><template #default="scope"><div class="batch-name">{{ scope.row.name }}</div><div class="muted">{{ compactRule(scope.row.rule) }}</div></template></el-table-column>
+              <el-table-column prop="name" label="批次" min-width="175"><template #default="scope"><div class="batch-name">{{ scope.row.name }} <el-tag v-if="scope.row.rule.category" size="small" type="info">{{ scope.row.rule.category }}</el-tag></div><div class="muted">{{ compactRule(scope.row.rule) }}</div></template></el-table-column>
               <el-table-column label="创建结果" width="120"><template #default="scope"><div>{{ scope.row.successCount }} 成功</div><div v-if="scope.row.failedCount" class="failed-text">{{ scope.row.failedCount }} 失败</div></template></el-table-column>
               <el-table-column prop="createTime" label="创建时间" min-width="155" />
+              <el-table-column label="操作" width="70"><template #default="scope"><el-dropdown trigger="click"><el-button text circle title="批次操作"><Icon icon="ion:ellipsis-horizontal" /></el-button><template #dropdown><el-dropdown-menu><el-dropdown-item @click="openEditBatch(scope.row)">编辑信息</el-dropdown-item><el-dropdown-item @click="toggleArchive(scope.row)">{{ scope.row.rule.archived ? '取消归档' : '归档批次' }}</el-dropdown-item><el-dropdown-item divided @click="deleteBatch(scope.row)">删除记录</el-dropdown-item></el-dropdown-menu></template></el-dropdown></template></el-table-column>
             </el-table>
             <el-pagination class="pagination" background small layout="prev, pager, next" :current-page="batchQuery.page" :page-size="batchQuery.size" :total="batchTotal" @current-change="changeBatchPage" />
           </section>
 
           <section class="batch-detail">
             <div v-if="selectedBatch" class="detail-content">
-              <div class="section-heading detail-heading"><div><h3>{{ selectedBatch.name }}</h3><span>{{ formatRule(selectedBatch.rule) }}</span></div><el-button :loading="exporting" :disabled="!itemTotal" @click="exportFiltered"><Icon icon="solar:download-minimalistic-outline" />导出筛选结果</el-button></div>
+              <div class="section-heading detail-heading"><div><h3>{{ selectedBatch.name }}</h3><span>{{ formatRule(selectedBatch.rule) }}</span><p v-if="selectedBatch.rule.note" class="batch-note">{{ selectedBatch.rule.note }}</p></div><el-button :loading="exporting" :disabled="!itemTotal" @click="exportFiltered"><Icon icon="solar:download-minimalistic-outline" />导出筛选结果</el-button></div>
               <div class="detail-stats"><span>总数 <strong>{{ selectedBatch.total }}</strong></span><span class="success-text">成功 <strong>{{ selectedBatch.successCount }}</strong></span><span class="failed-text">失败 <strong>{{ selectedBatch.failedCount }}</strong></span></div>
               <div class="item-filters">
                 <el-input v-model="itemQuery.email" clearable placeholder="搜索邮箱" @keyup.enter="searchItems"><template #prefix><Icon icon="iconoir:search" /></template></el-input>
@@ -80,6 +85,15 @@
         </div>
       </el-tab-pane>
     </el-tabs>
+
+    <el-dialog v-model="editVisible" title="编辑批次信息" width="min(480px, 92vw)">
+      <el-form label-position="top">
+        <el-form-item label="批次名称"><el-input v-model="editForm.name" maxlength="40" /></el-form-item>
+        <el-form-item label="分类"><el-input v-model="editForm.category" maxlength="30" placeholder="例如：客户、测试、活动" /></el-form-item>
+        <el-form-item label="备注"><el-input v-model="editForm.note" type="textarea" :rows="3" maxlength="200" show-word-limit /></el-form-item>
+      </el-form>
+      <template #footer><el-button @click="editVisible = false">取消</el-button><el-button type="primary" :loading="savingBatch" @click="saveBatch">保存</el-button></template>
+    </el-dialog>
   </div>
 </template>
 
@@ -87,19 +101,21 @@
 import {computed, onMounted, reactive, ref, watch} from 'vue'
 import {Icon} from '@iconify/vue'
 import {roleSelectUse} from '@/request/role.js'
-import {userBatchCreate, userBatchItems, userBatchList} from '@/request/user-batch.js'
+import {userBatchCreate, userBatchDelete, userBatchItems, userBatchList, userBatchUpdate} from '@/request/user-batch.js'
 import {useSettingStore} from '@/store/setting.js'
 
 defineOptions({name: 'user-batch'})
 const settingStore = useSettingStore()
-const activeTab = ref('create'), roles = ref([]), preview = ref([]), creating = ref(false)
+const activeTab = ref('create'), roles = ref([]), preview = ref([]), creating = ref(false), previewCreated = ref(false)
 const batches = ref([]), batchTotal = ref(0), batchLoading = ref(false), selectedBatch = ref(null)
 const batchItems = ref([]), itemTotal = ref(0), itemsLoading = ref(false), exporting = ref(false), batchDates = ref([])
+const categories = ref([]), editVisible = ref(false), savingBatch = ref(false)
 const passwordModes = [{label: '随机密码', value: 'random'}, {label: '统一密码', value: 'fixed'}]
-const batchQuery = reactive({keyword: '', domain: '', resultStatus: '', page: 1, size: 20})
+const batchQuery = reactive({keyword: '', domain: '', category: '', resultStatus: '', archived: '0', page: 1, size: 20})
 const itemQuery = reactive({email: '', status: '', page: 1, size: 50})
-const form = reactive({batchName: '', suffix: settingStore.domainList[0], prefix: 'user', separator: '', start: 1, count: 100, padding: 3, type: null, passwordMode: 'random', passwordLength: 12, fixedPassword: ''})
-const hasBatchFilters = computed(() => batchQuery.keyword || batchQuery.domain || batchQuery.resultStatus || batchDates.value?.length)
+const form = reactive({batchName: '', category: '', note: '', suffix: settingStore.domainList[0], prefix: 'user', separator: '', start: 1, count: 100, padding: 3, type: null, passwordMode: 'random', passwordLength: 12, fixedPassword: ''})
+const editForm = reactive({batchId: null, name: '', category: '', note: '', archived: false})
+const hasBatchFilters = computed(() => batchQuery.keyword || batchQuery.domain || batchQuery.category || batchQuery.resultStatus || batchQuery.archived === '1' || batchDates.value?.length)
 const resultSummary = computed(() => { const success = preview.value.filter(i => i.success === true).length; const failed = preview.value.filter(i => i.success === false).length; return !success && !failed ? `已生成 ${preview.value.length} 个账号，确认后创建` : `共 ${preview.value.length} 个，成功 ${success} 个，失败 ${failed} 个` })
 
 onMounted(async () => { roles.value = await roleSelectUse(); form.type = roles.value[0]?.roleId || null; await loadBatches() })
@@ -107,14 +123,14 @@ watch(activeTab, value => { if (value === 'history') loadBatches() })
 
 function randomPassword(length) { const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%'; const bytes = new Uint32Array(length); crypto.getRandomValues(bytes); return Array.from(bytes, value => chars[value % chars.length]).join('') }
 function validateForm() { if (!form.batchName.trim()) return '请输入批次名称'; if (!form.prefix.trim()) return '请输入邮箱前缀'; if (!/^[a-zA-Z0-9._-]+$/.test(form.prefix)) return '邮箱前缀只能包含字母、数字、点、横线和下划线'; if (!form.type) return '请选择权限身份'; if (form.passwordMode === 'fixed' && form.fixedPassword.length < 6) return '统一密码至少需要 6 位'; return '' }
-function generatePreview() { const error = validateForm(); if (error) return ElMessage.warning(error); preview.value = Array.from({length: form.count}, (_, index) => { const number = String(form.start + index).padStart(form.padding, '0'); return {email: `${form.prefix}${form.separator}${number}${form.suffix}`.toLowerCase(), password: form.passwordMode === 'random' ? randomPassword(form.passwordLength) : form.fixedPassword, type: form.type, success: null, error: ''} }) }
-async function createBatch() { creating.value = true; try { const data = await userBatchCreate({batchName: form.batchName.trim(), rule: {prefix: form.prefix, separator: form.separator, start: form.start, count: form.count, padding: form.padding, suffix: form.suffix}, list: preview.value.map(({email, password, type}) => ({email, password, type}))}); const resultMap = new Map(data.results.map(i => [i.email, i])); preview.value = preview.value.map(i => ({...i, ...resultMap.get(i.email)})); ElMessage.success(`批次创建完成：成功 ${data.successCount} 个，失败 ${data.failedCount} 个`); await loadBatches() } finally { creating.value = false } }
+function generatePreview() { const error = validateForm(); if (error) return ElMessage.warning(error); previewCreated.value = false; preview.value = Array.from({length: form.count}, (_, index) => { const number = String(form.start + index).padStart(form.padding, '0'); return {email: `${form.prefix}${form.separator}${number}${form.suffix}`.toLowerCase(), password: form.passwordMode === 'random' ? randomPassword(form.passwordLength) : form.fixedPassword, type: form.type, success: null, error: ''} }) }
+async function createBatch() { const confirmed = await ElMessageBox.confirm(`即将创建 ${preview.value.length} 个邮箱。创建后请立即导出并妥善保存密码。`, `确认创建“${form.batchName.trim()}”`, {confirmButtonText: '确认创建', cancelButtonText: '取消', type: 'warning'}).then(() => true).catch(() => false); if (!confirmed) return; creating.value = true; try { const data = await userBatchCreate({batchName: form.batchName.trim(), rule: {prefix: form.prefix, separator: form.separator, start: form.start, count: form.count, padding: form.padding, suffix: form.suffix, category: form.category.trim(), note: form.note.trim()}, list: preview.value.map(({email, password, type}) => ({email, password, type}))}); const resultMap = new Map(data.results.map(i => [i.email, i])); preview.value = preview.value.map(i => ({...i, ...resultMap.get(i.email)})); previewCreated.value = true; ElMessage.success(`批次创建完成：成功 ${data.successCount} 个，失败 ${data.failedCount} 个`); await loadBatches() } finally { creating.value = false } }
 
 function batchParams() { return {...batchQuery, startDate: batchDates.value?.[0] || '', endDate: batchDates.value?.[1] || ''} }
-async function loadBatches() { batchLoading.value = true; try { const data = await userBatchList(batchParams()); batches.value = data.list; batchTotal.value = data.total; if (selectedBatch.value && !data.list.some(i => i.batchId === selectedBatch.value.batchId)) { selectedBatch.value = null; batchItems.value = []; itemTotal.value = 0 } } finally { batchLoading.value = false } }
+async function loadBatches() { batchLoading.value = true; try { const data = await userBatchList(batchParams()); batches.value = data.list; batchTotal.value = data.total; categories.value = data.categories || []; if (selectedBatch.value && !data.list.some(i => i.batchId === selectedBatch.value.batchId)) { selectedBatch.value = null; batchItems.value = []; itemTotal.value = 0 } } finally { batchLoading.value = false } }
 function searchBatches() { batchQuery.page = 1; loadBatches() }
 function changeBatchPage(page) { batchQuery.page = page; loadBatches() }
-function resetBatchFilters() { Object.assign(batchQuery, {keyword: '', domain: '', resultStatus: '', page: 1}); batchDates.value = []; loadBatches() }
+function resetBatchFilters() { Object.assign(batchQuery, {keyword: '', domain: '', category: '', resultStatus: '', archived: '0', page: 1}); batchDates.value = []; loadBatches() }
 async function selectBatch(batch) { if (!batch) return; selectedBatch.value = batch; Object.assign(itemQuery, {email: '', status: '', page: 1}); await loadItems() }
 async function loadItems() { if (!selectedBatch.value) return; itemsLoading.value = true; try { const data = await userBatchItems({batchId: selectedBatch.value.batchId, ...itemQuery}); batchItems.value = data.list; itemTotal.value = data.total } finally { itemsLoading.value = false } }
 function searchItems() { itemQuery.page = 1; loadItems() }
@@ -126,6 +142,10 @@ function csvCell(value) { return `"${String(value ?? '').replaceAll('"', '""')}"
 function downloadCsv(filename, headers, rows) { const content = '\uFEFF' + [headers, ...rows].map(row => row.map(csvCell).join(',')).join('\n'); const url = URL.createObjectURL(new Blob([content], {type: 'text/csv;charset=utf-8'})); const link = document.createElement('a'); link.href = url; link.download = filename; link.click(); URL.revokeObjectURL(url) }
 function exportCurrent() { downloadCsv(`${form.batchName || '批量账号'}.csv`, ['邮箱', '密码', '状态', '说明'], preview.value.map(i => [i.email, i.password, i.success === true ? '成功' : i.success === false ? '失败' : '待创建', i.error])) }
 async function exportFiltered() { exporting.value = true; try { const data = await userBatchItems({batchId: selectedBatch.value.batchId, email: itemQuery.email, status: itemQuery.status, export: '1'}); downloadCsv(`${selectedBatch.value.name}-筛选结果.csv`, ['邮箱', '状态', '说明', '创建时间'], data.list.map(i => [i.email, i.status ? '成功' : '失败', i.error, i.createTime])); ElMessage.success(`已导出 ${data.list.length} 条记录`) } finally { exporting.value = false } }
+function openEditBatch(batch) { Object.assign(editForm, {batchId: batch.batchId, name: batch.name, category: batch.rule.category || '', note: batch.rule.note || '', archived: !!batch.rule.archived}); editVisible.value = true }
+async function saveBatch() { if (!editForm.name.trim()) return ElMessage.warning('请输入批次名称'); savingBatch.value = true; try { await userBatchUpdate({...editForm, name: editForm.name.trim(), category: editForm.category.trim(), note: editForm.note.trim()}); editVisible.value = false; await loadBatches(); ElMessage.success('批次信息已更新') } finally { savingBatch.value = false } }
+async function toggleArchive(batch) { await userBatchUpdate({batchId: batch.batchId, name: batch.name, category: batch.rule.category || '', note: batch.rule.note || '', archived: !batch.rule.archived}); selectedBatch.value = null; await loadBatches(); ElMessage.success(batch.rule.archived ? '已取消归档' : '批次已归档') }
+async function deleteBatch(batch) { const confirmed = await ElMessageBox.confirm('只删除批次历史和结果记录，不会删除已经创建的邮箱账号。', `删除“${batch.name}”的记录？`, {confirmButtonText: '删除记录', cancelButtonText: '取消', type: 'warning'}).then(() => true).catch(() => false); if (!confirmed) return; await userBatchDelete(batch.batchId); selectedBatch.value = null; batchItems.value = []; itemTotal.value = 0; await loadBatches(); ElMessage.success('批次记录已删除') }
 </script>
 
 <style scoped lang="scss">
@@ -135,12 +155,13 @@ h2, h3 { margin: 0; letter-spacing: 0; }.page-toolbar p, .section-heading span {
 .rule-section, .preview-section, .batch-list, .batch-detail { border-top: 1px solid var(--el-border-color); padding-top: 18px; }
 .rule-grid { display: grid; grid-template-columns: repeat(4, minmax(150px, 1fr)); gap: 0 16px; }.rule-grid :deep(.el-input-number), .rule-grid :deep(.el-select) { width: 100%; }
 .actions { display: flex; justify-content: flex-end; gap: 10px; margin-bottom: 18px; }.preview-section { margin-top: 4px; }.section-heading { margin-bottom: 14px; }
-.history-filters { display: grid; grid-template-columns: minmax(190px, 1fr) 180px 150px minmax(280px, 1.25fr) auto auto; gap: 10px; align-items: center; padding: 4px 0 16px; }
+.history-filters { display: grid; grid-template-columns: minmax(180px, 1fr) 160px 140px 140px minmax(250px, 1.2fr) auto auto auto; gap: 10px; align-items: center; padding: 4px 0 16px; }
 .history-filters :deep(.el-date-editor) { width: 100%; }.summary-strip { min-height: 34px; display: flex; align-items: center; gap: 24px; color: var(--el-text-color-secondary); font-size: 13px; }
 .history-layout { display: grid; grid-template-columns: minmax(390px, .85fr) minmax(520px, 1.15fr); gap: 22px; }.batch-name { font-weight: 600; }.muted { color: var(--el-text-color-secondary); font-size: 12px; margin-top: 3px; }
 .pagination { justify-content: center; margin-top: 14px; }.detail-content { min-height: 480px; }.detail-stats { display: flex; gap: 20px; padding: 10px 12px; margin-bottom: 12px; background: var(--el-fill-color-light); border-radius: 6px; font-size: 13px; }
 .item-filters { display: grid; grid-template-columns: minmax(220px, 1fr) 150px auto; gap: 10px; margin-bottom: 12px; }.detail-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; }
 .success-text { color: var(--el-color-success); }.failed-text { color: var(--el-color-danger); }
+.batch-note { margin: 6px 0 0; color: var(--el-text-color-regular); font-size: 13px; }
 @media (max-width: 1200px) { .rule-grid { grid-template-columns: repeat(2, minmax(150px, 1fr)); }.history-filters { grid-template-columns: 1fr 1fr 1fr; }.history-layout { grid-template-columns: 1fr; } }
 @media (max-width: 600px) { .batch-page { padding: 14px; }.rule-grid, .history-filters, .item-filters { grid-template-columns: 1fr; }.page-toolbar, .section-heading { align-items: flex-start; flex-wrap: wrap; }.detail-heading { flex-direction: column; }.history-layout { display: block; }.batch-detail { margin-top: 22px; }.batch-list :deep(.el-table) { height: 320px !important; }.batch-detail :deep(.el-table) { height: 360px !important; }.detail-footer { align-items: flex-start; gap: 8px; flex-direction: column; }.summary-strip { align-items: flex-start; flex-direction: column; gap: 4px; padding: 8px 0; } }
 </style>

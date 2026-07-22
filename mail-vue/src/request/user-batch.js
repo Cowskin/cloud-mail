@@ -11,3 +11,11 @@ export function userBatchList(params = {}) {
 export function userBatchItems(params) {
     return http.get('/userBatch/items', {params})
 }
+
+export function userBatchUpdate(data) {
+    return http.put('/userBatch/update', data)
+}
+
+export function userBatchDelete(batchId) {
+    return http.delete('/userBatch/delete', {params: {batchId}})
+}
