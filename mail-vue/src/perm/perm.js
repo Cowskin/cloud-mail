@@ -69,6 +69,16 @@ const routers = {
             menu: true
         }
     }],
+    'user:batch': [{
+        path: '/batch-users',
+        name: 'user-batch',
+        component: () => import('@/views/user-batch/index.vue'),
+        meta: {
+            title: 'batchUsers',
+            name: 'user-batch',
+            menu: true
+        }
+    }],
     'role:query': [{
         path: '/role',
         name: 'role',

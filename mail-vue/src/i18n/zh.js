@@ -6,6 +6,7 @@ const zh = {
     settings: '个人设置',
     analytics: '分析页',
     allUsers: '用户列表',
+    batchUsers: '批量注册',
     allMail: '全部邮件',
     permissions: '权限控制',
     inviteCode: '注册密钥',

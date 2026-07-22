@@ -6,6 +6,7 @@ const en = {
     settings: 'Settings',
     analytics: 'Analytics',
     allUsers: 'All Users',
+    batchUsers: 'Batch Users',
     allMail: 'All Mail',
     permissions: 'Role',
     inviteCode: 'Invite Code',

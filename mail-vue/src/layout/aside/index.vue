@@ -44,6 +44,11 @@
           <Icon icon="si:user-alt-2-line" width="20" height="20" />
           <span class="menu-name" style="margin-left: 21px">{{$t('allUsers')}}</span>
         </el-menu-item>
+        <el-menu-item @click="router.push({name: 'user-batch'})" index="user-batch" v-perm="'user:batch'"
+                      :class="route.meta.name === 'user-batch' ? 'choose-item' : ''">
+          <Icon icon="fluent:people-add-24-regular" width="21" height="21" />
+          <span class="menu-name" style="margin-left: 20px">{{$t('batchUsers')}}</span>
+        </el-menu-item>
         <el-menu-item @click="router.push({name: 'all-email'})" index="all-email" v-perm="'all-email:query'"
                       :class="route.meta.name === 'all-email' ? 'choose-item' : ''">
           <Icon icon="fluent:mail-list-28-regular" width="22" height="22" />

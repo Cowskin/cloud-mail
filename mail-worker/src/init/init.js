@@ -29,8 +29,44 @@ const dbInit = {
 		await this.v2_8DB(c);
 		await this.v2_9DB(c);
 		await this.v3_0DB(c);
+		await this.userBatchDB(c);
 		await settingService.refresh(c);
 		return c.text('success');
+	},
+
+	async userBatchDB(c) {
+		await c.env.db.batch([
+			c.env.db.prepare(`CREATE TABLE IF NOT EXISTS user_batch (
+				batch_id INTEGER PRIMARY KEY AUTOINCREMENT,
+				name TEXT NOT NULL,
+				rule_json TEXT NOT NULL DEFAULT '{}',
+				total INTEGER NOT NULL DEFAULT 0,
+				success_count INTEGER NOT NULL DEFAULT 0,
+				failed_count INTEGER NOT NULL DEFAULT 0,
+				operator_id INTEGER NOT NULL DEFAULT 0,
+				create_time DATETIME DEFAULT CURRENT_TIMESTAMP
+			)`),
+			c.env.db.prepare(`CREATE TABLE IF NOT EXISTS user_batch_item (
+				item_id INTEGER PRIMARY KEY AUTOINCREMENT,
+				batch_id INTEGER NOT NULL,
+				email TEXT NOT NULL,
+				status INTEGER NOT NULL DEFAULT 0,
+				error TEXT NOT NULL DEFAULT '',
+				create_time DATETIME DEFAULT CURRENT_TIMESTAMP
+			)`),
+			c.env.db.prepare(`CREATE INDEX IF NOT EXISTS idx_user_batch_item_batch ON user_batch_item(batch_id)`),
+			c.env.db.prepare(`CREATE INDEX IF NOT EXISTS idx_user_batch_item_email ON user_batch_item(email COLLATE NOCASE)`)
+		]);
+		try {
+			await c.env.db.batch([
+				c.env.db.prepare(`INSERT INTO perm (perm_id, name, perm_key, pid, type, sort)
+					VALUES (37, '批量用户', NULL, 0, 1, 3.1)`),
+				c.env.db.prepare(`INSERT INTO perm (perm_id, name, perm_key, pid, type, sort)
+					VALUES (38, '批量创建与导出', 'user:batch', 37, 2, 0)`)
+			]);
+		} catch (e) {
+			console.warn(`跳过批量用户权限数据：${e.message}`);
+		}
 	},
 
 	async v3_0DB(c) {
