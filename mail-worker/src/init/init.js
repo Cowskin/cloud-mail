@@ -56,6 +56,31 @@ const dbInit = {
 			)`),
 			c.env.db.prepare(`CREATE INDEX IF NOT EXISTS idx_user_batch_item_batch ON user_batch_item(batch_id)`),
 			c.env.db.prepare(`CREATE INDEX IF NOT EXISTS idx_user_batch_item_email ON user_batch_item(email COLLATE NOCASE)`)
+			,c.env.db.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS idx_user_batch_request_id
+				ON user_batch(json_extract(rule_json, '$.requestId'))
+				WHERE json_extract(rule_json, '$.requestId') IS NOT NULL`)
+			,c.env.db.prepare(`CREATE TABLE IF NOT EXISTS inbox_batch_group (
+				group_id INTEGER PRIMARY KEY AUTOINCREMENT,
+				name TEXT NOT NULL,
+				owner_id INTEGER NOT NULL,
+				category TEXT NOT NULL DEFAULT '',
+				note TEXT NOT NULL DEFAULT '',
+				protected INTEGER NOT NULL DEFAULT 0,
+				is_del INTEGER NOT NULL DEFAULT 0,
+				create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+				update_time DATETIME DEFAULT CURRENT_TIMESTAMP
+			)`),
+			c.env.db.prepare(`CREATE TABLE IF NOT EXISTS inbox_batch_member (
+				member_id INTEGER PRIMARY KEY AUTOINCREMENT,
+				group_id INTEGER NOT NULL,
+				account_id INTEGER NOT NULL,
+				email TEXT NOT NULL,
+				deleted_with_group INTEGER NOT NULL DEFAULT 0,
+				create_time DATETIME DEFAULT CURRENT_TIMESTAMP
+			)`),
+			c.env.db.prepare(`CREATE INDEX IF NOT EXISTS idx_inbox_group_owner ON inbox_batch_group(owner_id, is_del)`),
+			c.env.db.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS idx_inbox_member_account ON inbox_batch_member(account_id)`),
+			c.env.db.prepare(`CREATE INDEX IF NOT EXISTS idx_inbox_member_group ON inbox_batch_member(group_id)`)
 		]);
 		try {
 			await c.env.db.batch([
