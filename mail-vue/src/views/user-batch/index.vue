@@ -304,5 +304,14 @@ h2, h3 { margin: 0; letter-spacing: 0; }
 .success-text { color: var(--el-color-success); }
 .failed-text { color: var(--el-color-danger); }
 @media (max-width: 1100px) { .rule-grid { grid-template-columns: repeat(2, minmax(150px, 1fr)); } .history-layout { grid-template-columns: 1fr; } }
-@media (max-width: 600px) { .batch-page { padding: 14px; } .rule-grid { grid-template-columns: 1fr; } .page-toolbar, .section-heading { align-items: flex-start; } .detail-heading { flex-direction: column; } .filters { grid-template-columns: 1fr; } }
+@media (max-width: 600px) {
+  .batch-page { padding: 14px; }
+  .rule-grid { grid-template-columns: 1fr; }
+  .page-toolbar, .section-heading { align-items: flex-start; flex-wrap: wrap; }
+  .section-heading .el-input { width: 100%; }
+  .detail-heading { flex-direction: column; }
+  .filters { grid-template-columns: 1fr; }
+  .batch-list :deep(.el-table) { height: 300px !important; }
+  .batch-detail :deep(.el-table) { height: 360px !important; }
+}
 </style>
