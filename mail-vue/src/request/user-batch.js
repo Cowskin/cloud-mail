@@ -43,3 +43,7 @@ export function inboxGroupDelete(data) {
 export function inboxGroupRestore(groupId) {
     return http.put('/inboxGroup/restore', {groupId})
 }
+
+export function inboxGroupPurge(data) {
+    return http.delete('/inboxGroup/purge', {data})
+}

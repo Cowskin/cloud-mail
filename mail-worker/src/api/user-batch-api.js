@@ -45,3 +45,7 @@ app.delete('/inboxGroup/delete', async c => {
 app.put('/inboxGroup/restore', async c => {
 	return c.json(result.ok(await userBatchService.groupRestore(c, await c.req.json())));
 });
+
+app.delete('/inboxGroup/purge', async c => {
+	return c.json(result.ok(await userBatchService.groupPurge(c, await c.req.json())));
+});

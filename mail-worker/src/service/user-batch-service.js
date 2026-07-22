@@ -432,6 +432,21 @@ const userBatchService = {
 			c.env.db.prepare('UPDATE inbox_batch_group SET is_del = 0, update_time = ? WHERE group_id = ?').bind(dayjs().format('YYYY-MM-DD HH:mm:ss'), groupId)
 		]);
 		return { groupId };
+	},
+
+	async groupPurge(c, params) {
+		const groupId = Number(params.groupId);
+		const group = await this.requireOwnedGroup(c, groupId, true);
+		if (!group.isDel) throw new BizError('只能永久删除回收站中的分组');
+		if (String(params.confirmName || '') !== group.name) throw new BizError('请输入完整组名确认永久删除');
+		await c.env.db.batch([
+			c.env.db.prepare('DELETE FROM attachments WHERE account_id IN (SELECT account_id FROM inbox_batch_member WHERE group_id = ?)').bind(groupId),
+			c.env.db.prepare('DELETE FROM email WHERE account_id IN (SELECT account_id FROM inbox_batch_member WHERE group_id = ?)').bind(groupId),
+			c.env.db.prepare('DELETE FROM account WHERE account_id IN (SELECT account_id FROM inbox_batch_member WHERE group_id = ?)').bind(groupId),
+			c.env.db.prepare('DELETE FROM inbox_batch_member WHERE group_id = ?').bind(groupId),
+			c.env.db.prepare('DELETE FROM inbox_batch_group WHERE group_id = ?').bind(groupId)
+		]);
+		return { groupId };
 	}
 };
 

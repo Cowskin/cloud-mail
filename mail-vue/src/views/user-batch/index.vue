@@ -74,6 +74,7 @@
                   <el-button @click="exportGroup"><Icon icon="solar:download-minimalistic-outline" />导出</el-button>
                   <el-button v-if="!selectedGroup.isDel" @click="toggleGroupProtection"><Icon :icon="selectedGroup.protected ? 'solar:lock-keyhole-unlocked-outline' : 'solar:lock-keyhole-outline'" />{{ selectedGroup.protected ? '解除保护' : '保护分组' }}</el-button>
                   <el-button v-if="selectedGroup.isDel" type="success" @click="restoreGroup"><Icon icon="solar:restart-outline" />批量恢复</el-button>
+                  <el-button v-if="selectedGroup.isDel" type="danger" @click="purgeGroup"><Icon icon="solar:trash-bin-minimalistic-outline" />永久删除</el-button>
                   <el-button v-else type="danger" :disabled="!!selectedGroup.protected" @click="removeGroup"><Icon icon="solar:trash-bin-trash-outline" />删除</el-button>
                 </div>
               </div>
@@ -109,7 +110,7 @@
 import {computed, onMounted, reactive, ref} from 'vue'
 import {Icon} from '@iconify/vue'
 import {roleSelectUse} from '@/request/role.js'
-import {inboxGroupDelete, inboxGroupList, inboxGroupMembers, inboxGroupProtect, inboxGroupRestore, userBatchCreate, userBatchList, userBatchPrecheck} from '@/request/user-batch.js'
+import {inboxGroupDelete, inboxGroupList, inboxGroupMembers, inboxGroupProtect, inboxGroupPurge, inboxGroupRestore, userBatchCreate, userBatchList, userBatchPrecheck} from '@/request/user-batch.js'
 import {useSettingStore} from '@/store/setting.js'
 
 defineOptions({name: 'user-batch'})
@@ -146,6 +147,7 @@ function changeMemberPage(page) { memberQuery.page = page; loadMembers() }
 async function toggleGroupProtection() { const next = !selectedGroup.value.protected; await inboxGroupProtect({groupId: selectedGroup.value.groupId, protected: next}); selectedGroup.value.protected = next; await loadGroups(); ElMessage.success(next ? '分组已保护' : '已解除保护') }
 async function removeGroup() { let confirmName = ''; if (selectedGroup.value.emailCount > 0) { const answer = await ElMessageBox.prompt(`组内有 ${selectedGroup.value.emailCount} 封邮件。输入完整组名后移入回收站。`, '高风险删除', {confirmButtonText: '移入回收站', cancelButtonText: '取消', inputPlaceholder: selectedGroup.value.name, inputValidator: value => value === selectedGroup.value.name || '组名不匹配'}).catch(() => null); if (!answer) return; confirmName = answer.value } else { const ok = await ElMessageBox.confirm(`将 ${selectedGroup.value.inboxCount} 个收件箱移入回收站，可批量恢复。`, '确认删除分组', {confirmButtonText: '移入回收站', cancelButtonText: '取消', type: 'warning'}).then(() => true).catch(() => false); if (!ok) return } await inboxGroupDelete({groupId: selectedGroup.value.groupId, confirmName, deleteInboxes: true}); selectedGroup.value = null; await loadGroups(); ElMessage.success('分组和收件箱已移入回收站') }
 async function restoreGroup() { await inboxGroupRestore(selectedGroup.value.groupId); selectedGroup.value = null; await loadGroups(); ElMessage.success('分组及随组删除的收件箱已恢复') }
+async function purgeGroup() { const answer = await ElMessageBox.prompt('此操作不可恢复。请输入完整组名确认永久删除。', '永久删除分组及全部数据', {confirmButtonText: '永久删除', cancelButtonText: '取消', inputPlaceholder: selectedGroup.value.name, inputValidator: value => value === selectedGroup.value.name || '组名不匹配'}).catch(() => null); if (!answer) return; await inboxGroupPurge({groupId: selectedGroup.value.groupId, confirmName: answer.value}); selectedGroup.value = null; await loadGroups(); ElMessage.success('分组及关联数据已永久删除') }
 function exportGroup() { downloadCsv(`${selectedGroup.value.name}-收件箱.csv`, ['邮箱', '邮件数', '未读数', '最近收件', '状态'], groupMembers.value.map(item => [item.email, item.emailCount, item.unreadCount, item.latestEmailTime, item.isDel ? '已删除' : '正常'])) }
 
 async function loadBatches() { batchLoading.value = true; try { const data = await userBatchList(batchQuery); batches.value = data.list; batchTotal.value = data.total } finally { batchLoading.value = false } }
