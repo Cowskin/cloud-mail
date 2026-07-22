@@ -4,8 +4,8 @@ export function userBatchCreate(data) {
     return http.post('/userBatch/create', data)
 }
 
-export function userBatchList(keyword = '') {
-    return http.get('/userBatch/list', {params: {keyword}})
+export function userBatchList(params = {}) {
+    return http.get('/userBatch/list', {params})
 }
 
 export function userBatchItems(params) {

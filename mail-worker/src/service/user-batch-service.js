@@ -8,6 +8,13 @@ import dayjs from 'dayjs';
 
 const MAX_BATCH_SIZE = 500;
 const WRITE_CHUNK_SIZE = 25;
+const MAX_PAGE_SIZE = 100;
+
+function pagination(params, defaultSize = 20) {
+	const page = Math.max(1, Number(params.page) || 1);
+	const size = Math.min(MAX_PAGE_SIZE, Math.max(1, Number(params.size) || defaultSize));
+	return { page, size, offset: (page - 1) * size };
+}
 
 function chunks(list, size) {
 	const result = [];
@@ -107,15 +114,44 @@ const userBatchService = {
 
 	async list(c, params) {
 		const keyword = String(params.keyword || '').trim();
-		const condition = keyword ? 'WHERE name LIKE ?' : '';
-		const binding = keyword ? [`%${keyword}%`] : [];
+		const domain = String(params.domain || '').trim();
+		const resultStatus = String(params.resultStatus || '');
+		const conditions = [];
+		const bindings = [];
+		if (keyword) {
+			conditions.push('(name LIKE ? OR json_extract(rule_json, \'$.prefix\') LIKE ?)');
+			bindings.push(`%${keyword}%`, `%${keyword}%`);
+		}
+		if (domain) {
+			conditions.push("json_extract(rule_json, '$.suffix') = ?");
+			bindings.push(domain);
+		}
+		if (resultStatus === 'success') conditions.push('success_count = total');
+		if (resultStatus === 'partial') conditions.push('success_count > 0 AND failed_count > 0');
+		if (resultStatus === 'failed') conditions.push('success_count = 0 AND failed_count > 0');
+		if (params.startDate) {
+			conditions.push('create_time >= ?');
+			bindings.push(`${String(params.startDate).slice(0, 10)} 00:00:00`);
+		}
+		if (params.endDate) {
+			conditions.push('create_time <= ?');
+			bindings.push(`${String(params.endDate).slice(0, 10)} 23:59:59`);
+		}
+		const condition = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+		const { page, size, offset } = pagination(params);
+		const totalRow = await c.env.db.prepare(
+			`SELECT COUNT(*) AS total FROM user_batch ${condition}`
+		).bind(...bindings).first();
 		const { results } = await c.env.db.prepare(`
 			SELECT batch_id AS batchId, name, rule_json AS ruleJson, total,
 				success_count AS successCount, failed_count AS failedCount,
 				operator_id AS operatorId, create_time AS createTime
-			FROM user_batch ${condition} ORDER BY batch_id DESC LIMIT 100
-		`).bind(...binding).all();
-		return results.map(item => ({ ...item, rule: JSON.parse(item.ruleJson || '{}') }));
+			FROM user_batch ${condition} ORDER BY batch_id DESC LIMIT ? OFFSET ?
+		`).bind(...bindings, size, offset).all();
+		return {
+			list: results.map(item => ({ ...item, rule: JSON.parse(item.ruleJson || '{}') })),
+			total: Number(totalRow?.total || 0), page, size
+		};
 	},
 
 	async items(c, params) {
@@ -131,11 +167,19 @@ const userBatchService = {
 			conditions.push('status = ?');
 			bindings.push(Number(params.status));
 		}
+		const where = conditions.join(' AND ');
+		const totalRow = await c.env.db.prepare(
+			`SELECT COUNT(*) AS total FROM user_batch_item WHERE ${where}`
+		).bind(...bindings).first();
+		const exportAll = params.export === '1';
+		const { page, size, offset } = pagination(params, 50);
+		const limit = exportAll ? 5000 : size;
+		const queryOffset = exportAll ? 0 : offset;
 		const { results } = await c.env.db.prepare(`
 			SELECT item_id AS itemId, batch_id AS batchId, email, status, error, create_time AS createTime
-			FROM user_batch_item WHERE ${conditions.join(' AND ')} ORDER BY item_id ASC
-		`).bind(...bindings).all();
-		return results;
+			FROM user_batch_item WHERE ${where} ORDER BY item_id ASC LIMIT ? OFFSET ?
+		`).bind(...bindings, limit, queryOffset).all();
+		return { list: results, total: Number(totalRow?.total || 0), page, size };
 	}
 };
 
