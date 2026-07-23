@@ -11,11 +11,22 @@
           <div class="account">
             {{ item.email }}
           </div>
+          <div class="account-meta">
+            <el-tag size="small" :type="item.groupName ? 'primary' : 'info'" effect="plain">
+              <Icon :icon="item.groupName ? 'solar:folder-with-files-outline' : 'solar:inbox-outline'" />
+              {{ item.groupName || '未分组' }}
+            </el-tag>
+            <el-tooltip v-if="item.groupProtected" content="该分组已保护，解除保护前不能删除收件箱" placement="top">
+              <Icon class="group-lock" icon="solar:lock-keyhole-outline" />
+            </el-tooltip>
+          </div>
           <div class="opt">
-            <div class="send-email" @click.stop>
-              <Icon @click="setAllReceive(item)" v-if="!item.allReceive" icon="eva:email-fill" width="22" height="22" color="#fccb1a"/>
-              <Icon @click="setAllReceive(item)" v-else icon="flat-color-icons:folder" width="22" height="22" color="#23c4f1" />
-            </div>
+            <el-tooltip :content="item.allReceive ? '聚合已开启：当前列表显示所有收件箱的邮件，点击恢复仅看此邮箱' : '当前仅显示此邮箱的邮件，点击聚合显示全部收件箱邮件'" placement="top">
+              <button class="receive-mode" :class="{active: item.allReceive}" @click.stop="setAllReceive(item)">
+                <Icon :icon="item.allReceive ? 'solar:inbox-in-outline' : 'solar:letter-outline'" />
+                <span>{{ item.allReceive ? '聚合全部' : '仅此邮箱' }}</span>
+              </button>
+            </el-tooltip>
             <div class="settings" @click.stop>
               <Icon icon="fluent-color:clipboard-24" width="22" height="22" @click.stop="copyAccount(item.email)"/>
               <Icon icon="fluent:settings-24-filled" width="21" height="21" color="#909399"
@@ -26,7 +37,7 @@
                   <el-dropdown-menu>
                     <el-dropdown-item v-if="hasPerm('email:send')" @click="openSetName(item)">{{ $t('rename') }}</el-dropdown-item>
                     <el-dropdown-item v-if="item.accountId !== userStore.user.account.accountId" @click="setAsTop(item, index)">{{ $t('pin') }}</el-dropdown-item>
-                    <el-dropdown-item v-if="item.accountId !== userStore.user.account.accountId && hasPerm('account:delete')"
+                    <el-dropdown-item v-if="item.accountId !== userStore.user.account.accountId && hasPerm('account:delete')" :disabled="!!item.groupProtected"
                                       @click="remove(item)">{{ $t('delete') }}
                     </el-dropdown-item>
                   </el-dropdown-menu>
@@ -278,13 +289,7 @@ function setAllReceive(account) {
     account.allReceive = account.allReceive === AccountAllReceiveEnum.DISABLED ? AccountAllReceiveEnum.ENABLED : AccountAllReceiveEnum.DISABLED;
     if (allReceiveAccount) allReceiveAccount.allReceive = AccountAllReceiveEnum.ENABLED;
   }).then(() => {
-    if (account.allReceive === AccountAllReceiveEnum.ENABLED) {
-      ElMessage({
-        message: t('setSuccess'),
-        type: 'success',
-        plain: true,
-      })
-    }
+    ElMessage({message: account.allReceive === AccountAllReceiveEnum.ENABLED ? '已开启聚合，当前显示全部收件箱邮件' : '已关闭聚合，当前仅显示此邮箱邮件', type: 'success', plain: true})
     changeAccount(account);
     emailStore.emailScroll?.refreshList();
     emailStore.sendScroll?.refreshList();
@@ -588,10 +593,22 @@ path[fill="#ffdda1"] {
 
     .account {
       font-weight: 600;
-      margin-bottom: 20px;
+      margin-bottom: 8px;
       overflow: hidden;
       white-space: nowrap;
       text-overflow: ellipsis;
+    }
+
+    .account-meta {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 22px;
+      margin-bottom: 12px;
+
+      :deep(.el-tag__content) { display: flex; align-items: center; gap: 4px; max-width: 170px; overflow: hidden; }
+      :deep(.el-tag__content span) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .group-lock { color: var(--el-color-warning); flex: none; }
     }
 
     .opt {
@@ -606,9 +623,22 @@ path[fill="#ffdda1"] {
         gap: 10px;
       }
 
-      .send-email {
+      .receive-mode {
         display: flex;
         align-items: center;
+        gap: 5px;
+        min-height: 28px;
+        padding: 3px 7px;
+        color: var(--el-text-color-regular);
+        font: inherit;
+        background: var(--el-fill-color-light);
+        border: 1px solid var(--el-border-color);
+        border-radius: 5px;
+        cursor: pointer;
+
+        svg { font-size: 17px; color: var(--el-color-warning); }
+        &.active { color: var(--el-color-primary); background: var(--el-color-primary-light-9); border-color: var(--el-color-primary-light-5); }
+        &.active svg { color: var(--el-color-primary); }
       }
     }
 

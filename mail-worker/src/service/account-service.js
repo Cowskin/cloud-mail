@@ -5,7 +5,7 @@ import userService from './user-service';
 import emailService from './email-service';
 import orm from '../entity/orm';
 import account from '../entity/account';
-import { and, asc, eq, gt, inArray, count, sql, ne, or, lt, desc } from 'drizzle-orm';
+import { and, eq, inArray, count, sql, ne } from 'drizzle-orm';
 import {accountConst, isDel, settingConst} from '../const/entity-const';
 import settingService from './setting-service';
 import turnstileService from './turnstile-service';
@@ -103,7 +103,7 @@ const accountService = {
 		return orm(c).select().from(account).where(sql`${account.email} COLLATE NOCASE = ${email}`).get();
 	},
 
-	list(c, params, userId) {
+	async list(c, params, userId) {
 
 		let { accountId, size, lastSort } = params;
 
@@ -123,21 +123,20 @@ const accountService = {
 			lastSort = 9999999999;
 		}
 
-		return orm(c).select().from(account).where(
-			and(
-				eq(account.userId, userId),
-				eq(account.isDel, isDel.NORMAL),
-					or(
-						lt(account.sort, lastSort),
-						and(
-							eq(account.sort, lastSort),
-							gt(account.accountId, accountId)
-						)
-					))
-				)
-			.orderBy(desc(account.sort), asc(account.accountId))
-			.limit(size)
-			.all();
+		const { results } = await c.env.db.prepare(`
+			SELECT a.account_id AS accountId, a.email, a.name, a.status,
+				a.latest_email_time AS latestEmailTime, a.create_time AS createTime,
+				a.user_id AS userId, a.all_receive AS allReceive, a.sort, a.is_del AS isDel,
+				g.group_id AS groupId, g.name AS groupName, COALESCE(g.protected, 0) AS groupProtected
+			FROM account a
+			LEFT JOIN inbox_batch_member m ON m.account_id = a.account_id
+			LEFT JOIN inbox_batch_group g ON g.group_id = m.group_id AND g.is_del = 0
+			WHERE a.user_id = ? AND a.is_del = ?
+				AND (a.sort < ? OR (a.sort = ? AND a.account_id > ?))
+			ORDER BY a.sort DESC, a.account_id ASC
+			LIMIT ?
+		`).bind(userId, isDel.NORMAL, lastSort, lastSort, accountId, size).all();
+		return results;
 	},
 
 	async delete(c, params, userId) {
