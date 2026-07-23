@@ -155,6 +155,17 @@ const accountService = {
 			throw new BizError(t('noUserAccount'));
 		}
 
+		const protectedGroup = await c.env.db.prepare(`
+			SELECT g.name
+			FROM inbox_batch_member m
+			JOIN inbox_batch_group g ON g.group_id = m.group_id
+			WHERE m.account_id = ? AND g.protected = 1 AND g.is_del = 0
+			LIMIT 1
+		`).bind(accountId).first();
+		if (protectedGroup) {
+			throw new BizError(`该收件箱属于已保护分组“${protectedGroup.name}”，请先在批量注册中解除保护`);
+		}
+
 		await orm(c).update(account).set({ isDel: isDel.DELETE }).where(
 			and(eq(account.userId, userId),
 				eq(account.accountId, accountId)))
