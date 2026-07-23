@@ -11,20 +11,22 @@
           <div class="account">
             {{ item.email }}
           </div>
-          <div class="account-meta">
-            <el-tag size="small" :type="item.groupName ? 'primary' : 'info'" effect="plain">
-              <Icon :icon="item.groupName ? 'solar:folder-with-files-outline' : 'solar:inbox-outline'" />
-              {{ item.groupName || '未分组' }}
-            </el-tag>
-            <el-tooltip v-if="item.groupProtected" content="该分组已保护，解除保护前不能删除收件箱" placement="top">
-              <Icon class="group-lock" icon="solar:lock-keyhole-outline" />
-            </el-tooltip>
-          </div>
           <div class="opt">
+            <div class="account-meta">
+              <el-tooltip :content="item.groupName || '未分组'" placement="top" :disabled="!item.groupName">
+                <el-tag size="small" :type="item.groupName ? 'primary' : 'info'" effect="plain">
+                  <Icon :icon="item.groupName ? 'solar:folder-with-files-outline' : 'solar:inbox-outline'" />
+                  <span>{{ item.groupName || '未分组' }}</span>
+                </el-tag>
+              </el-tooltip>
+              <el-tooltip v-if="item.groupProtected" content="该分组已保护，解除保护前不能删除收件箱" placement="top">
+                <Icon class="group-lock" icon="solar:lock-keyhole-outline" />
+              </el-tooltip>
+            </div>
             <el-tooltip :content="item.allReceive ? '聚合已开启：当前列表显示所有收件箱的邮件，点击恢复仅看此邮箱' : '当前仅显示此邮箱的邮件，点击聚合显示全部收件箱邮件'" placement="top">
               <button class="receive-mode" :class="{active: item.allReceive}" @click.stop="setAllReceive(item)">
                 <Icon :icon="item.allReceive ? 'solar:inbox-in-outline' : 'solar:letter-outline'" />
-                <span>{{ item.allReceive ? '聚合全部' : '仅此邮箱' }}</span>
+                <span>{{ item.allReceive ? '全部邮件' : '当前邮箱' }}</span>
               </button>
             </el-tooltip>
             <div class="settings" @click.stop>
@@ -593,7 +595,7 @@ path[fill="#ffdda1"] {
 
     .account {
       font-weight: 600;
-      margin-bottom: 8px;
+      margin-bottom: 12px;
       overflow: hidden;
       white-space: nowrap;
       text-overflow: ellipsis;
@@ -603,24 +605,28 @@ path[fill="#ffdda1"] {
       display: flex;
       align-items: center;
       gap: 6px;
-      min-height: 22px;
-      margin-bottom: 12px;
+      min-width: 0;
+      overflow: hidden;
 
-      :deep(.el-tag__content) { display: flex; align-items: center; gap: 4px; max-width: 170px; overflow: hidden; }
-      :deep(.el-tag__content span) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      :deep(.el-tooltip__trigger) { min-width: 0; overflow: hidden; }
+      :deep(.el-tag) { max-width: 100%; }
+      :deep(.el-tag__content) { display: flex; align-items: center; gap: 4px; min-width: 0; overflow: hidden; }
+      :deep(.el-tag__content span) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .group-lock { color: var(--el-color-warning); flex: none; }
     }
 
     .opt {
-      display: flex;
-      justify-content: space-between;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      align-items: center;
+      gap: 7px;
       font-size: 12px;
       color: #888;
 
       .settings {
         display: flex;
         align-items: center;
-        gap: 10px;
+        gap: 7px;
       }
 
       .receive-mode {
