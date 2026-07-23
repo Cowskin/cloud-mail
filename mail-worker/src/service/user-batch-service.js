@@ -5,6 +5,7 @@ import reqUtils from '../utils/req-utils';
 import roleService from './role-service';
 import verifyUtils from '../utils/verify-utils';
 import dayjs from 'dayjs';
+import attService from './att-service';
 
 const MAX_BATCH_SIZE = 500;
 const WRITE_CHUNK_SIZE = 25;
@@ -353,6 +354,7 @@ const userBatchService = {
 				COALESCE(SUM(CASE WHEN a.is_del = 0 THEN 1 ELSE 0 END), 0) AS activeInboxCount,
 				COALESCE(SUM(CASE WHEN a.is_del = 1 THEN 1 ELSE 0 END), 0) AS deletedInboxCount,
 				COALESCE(SUM((SELECT COUNT(*) FROM email e WHERE e.account_id = m.account_id AND e.is_del = 0)), 0) AS emailCount,
+				COALESCE(SUM((SELECT COUNT(*) FROM attachments att WHERE att.account_id = m.account_id)), 0) AS attachmentCount,
 				COALESCE(SUM((SELECT COUNT(*) FROM email e WHERE e.account_id = m.account_id AND e.is_del = 0 AND e.unread = 0)), 0) AS unreadCount
 			FROM inbox_batch_group g LEFT JOIN inbox_batch_member m ON m.group_id = g.group_id
 			LEFT JOIN account a ON a.account_id = m.account_id
@@ -444,9 +446,13 @@ const userBatchService = {
 		const groupId = Number(params.groupId);
 		const group = await this.requireOwnedGroup(c, groupId, true);
 		if (!group.isDel) throw new BizError('只能永久删除“已删除分组”中的分组');
+		if (group.protected) throw new BizError('保护分组不能永久删除，请先恢复分组并解除保护');
 		if (String(params.confirmName || '') !== group.name) throw new BizError('请输入完整组名确认永久删除');
+		const { results: accountRows } = await c.env.db.prepare('SELECT account_id AS accountId FROM inbox_batch_member WHERE group_id = ?').bind(groupId).all();
+		const accountIds = accountRows.map(row => row.accountId);
+		if (accountIds.length) await attService.removeAttByField(c, 'account_id', accountIds);
 		await c.env.db.batch([
-			c.env.db.prepare('DELETE FROM attachments WHERE account_id IN (SELECT account_id FROM inbox_batch_member WHERE group_id = ?)').bind(groupId),
+			c.env.db.prepare('DELETE FROM star WHERE email_id IN (SELECT email_id FROM email WHERE account_id IN (SELECT account_id FROM inbox_batch_member WHERE group_id = ?))').bind(groupId),
 			c.env.db.prepare('DELETE FROM email WHERE account_id IN (SELECT account_id FROM inbox_batch_member WHERE group_id = ?)').bind(groupId),
 			c.env.db.prepare('DELETE FROM account WHERE account_id IN (SELECT account_id FROM inbox_batch_member WHERE group_id = ?)').bind(groupId),
 			c.env.db.prepare('DELETE FROM inbox_batch_member WHERE group_id = ?').bind(groupId),

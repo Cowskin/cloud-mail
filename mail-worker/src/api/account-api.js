@@ -16,6 +16,10 @@ app.put('/account/restore', async (c) => {
 	return c.json(result.ok(await accountService.restore(c, await c.req.json(), userContext.getUserId(c))));
 });
 
+app.delete('/account/purge', async (c) => {
+	return c.json(result.ok(await accountService.purge(c, await c.req.json(), userContext.getUserId(c))));
+});
+
 app.delete('/account/delete', async (c) => {
 	await accountService.delete(c, c.req.query(), userContext.getUserId(c));
 	return c.json(result.ok());

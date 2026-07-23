@@ -24,6 +24,10 @@ export function accountRestore(accountId) {
     return http.put('/account/restore', {accountId})
 }
 
+export function accountPurge(data) {
+    return http.delete('/account/purge', {data})
+}
+
 export function accountSetAllReceive(accountId) {
     return http.put('/account/setAllReceive', {accountId})
 }

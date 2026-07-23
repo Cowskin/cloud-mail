@@ -174,7 +174,9 @@ const accountService = {
 	async deletedList(c, userId) {
 		const { results } = await c.env.db.prepare(`
 			SELECT a.account_id AS accountId, a.email, a.name, a.create_time AS createTime,
-				g.group_id AS groupId, g.name AS groupName
+				g.group_id AS groupId, g.name AS groupName, COALESCE(g.protected, 0) AS groupProtected,
+				(SELECT COUNT(*) FROM email e WHERE e.account_id = a.account_id) AS emailCount,
+				(SELECT COUNT(*) FROM attachments att WHERE att.account_id = a.account_id) AS attachmentCount
 			FROM account a
 			LEFT JOIN inbox_batch_member m ON m.account_id = a.account_id
 			LEFT JOIN inbox_batch_group g ON g.group_id = m.group_id
@@ -201,6 +203,36 @@ const accountService = {
 		if (row.groupIsDel || row.deletedWithGroup) throw new BizError('该邮箱随整个分组删除，请从已删除分组整体恢复');
 		if (!row.isDel) return { accountId, email: row.email };
 		await c.env.db.prepare('UPDATE account SET is_del = 0 WHERE account_id = ? AND user_id = ?').bind(accountId, userId).run();
+		return { accountId, email: row.email };
+	},
+
+	async purge(c, params, userId) {
+		const accountId = Number(params.accountId);
+		if (!accountId) throw new BizError('请选择要永久删除的邮箱');
+		const row = await c.env.db.prepare(`
+			SELECT a.email, a.is_del AS isDel, g.name AS groupName, g.protected AS groupProtected,
+				g.is_del AS groupIsDel, COALESCE(m.deleted_with_group, 0) AS deletedWithGroup,
+				(SELECT COUNT(*) FROM email e WHERE e.account_id = a.account_id) AS emailCount,
+				(SELECT COUNT(*) FROM attachments att WHERE att.account_id = a.account_id) AS attachmentCount
+			FROM account a
+			LEFT JOIN inbox_batch_member m ON m.account_id = a.account_id
+			LEFT JOIN inbox_batch_group g ON g.group_id = m.group_id
+			WHERE a.account_id = ? AND a.user_id = ?
+		`).bind(accountId, userId).first();
+		if (!row) throw new BizError('邮箱不存在');
+		if (!row.isDel) throw new BizError('只能永久删除“已删除邮箱”中的邮箱');
+		if (row.groupIsDel || row.deletedWithGroup) throw new BizError('该邮箱随整个分组删除，请在已删除分组中处理');
+		if (row.groupProtected) throw new BizError(`该邮箱属于已保护分组“${row.groupName}”，请先恢复并解除保护`);
+		const hasContent = Number(row.emailCount || 0) > 0 || Number(row.attachmentCount || 0) > 0;
+		if (hasContent && String(params.confirmEmail || '').toLowerCase() !== String(row.email).toLowerCase()) {
+			throw new BizError('邮箱内存在邮件或附件，请输入完整邮箱地址确认');
+		}
+		await c.env.db.prepare('DELETE FROM star WHERE email_id IN (SELECT email_id FROM email WHERE account_id = ?)').bind(accountId).run();
+		await emailService.physicsDeleteByAccountId(c, accountId);
+		await c.env.db.batch([
+			c.env.db.prepare('DELETE FROM inbox_batch_member WHERE account_id = ?').bind(accountId),
+			c.env.db.prepare('DELETE FROM account WHERE account_id = ? AND user_id = ?').bind(accountId, userId)
+		]);
 		return { accountId, email: row.email };
 	},
 
