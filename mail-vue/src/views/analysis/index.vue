@@ -82,6 +82,26 @@
           </div>
         </div>
       </div>
+      <section class="storage-panel">
+        <div class="storage-head">
+          <div>
+            <div class="storage-title">存储容量与风险</div>
+            <div class="storage-subtitle">数据库为平台返回的实际文件大小；附件按已登记的唯一对象估算。</div>
+          </div>
+          <el-tag :type="storageTagType" effect="dark">{{ storageLevelText }}</el-tag>
+        </div>
+        <div class="storage-grid">
+          <div class="storage-main">
+            <div class="storage-label"><span>D1 数据库</span><strong>{{ formatBytes(storage.databaseBytes) }} / {{ formatBytes(storage.d1LimitBytes) }}</strong></div>
+            <el-progress :percentage="Math.min(100, storage.databaseUsagePercent)" :stroke-width="12" :status="storageProgressStatus" />
+            <div class="storage-note">容量基准可通过 storage_d1_limit_mb 调整；当前按 {{ formatBytes(storage.d1LimitBytes) }} 评估。</div>
+          </div>
+          <div class="storage-stat"><span>附件对象</span><strong>{{ formatBytes(storage.attachmentBytes) }}</strong><small>{{ storage.attachmentTotal }} 条记录</small></div>
+          <div class="storage-stat"><span>近 7 天日均增长</span><strong>{{ formatBytes(storage.dailyGrowth7d) }}/天</strong><small>30 天均值 {{ formatBytes(storage.dailyGrowth30d) }}/天</small></div>
+          <div class="storage-stat"><span>预计可用时间</span><strong>{{ remainingDaysText }}</strong><small>按近 7 天增长估算</small></div>
+        </div>
+        <el-alert v-if="storage.level !== 'normal'" :title="storageAlertText" :type="storage.level === 'warning' ? 'warning' : 'error'" :closable="false" show-icon />
+      </section>
       <div class="picture">
         <div class="picture-item">
           <div class="title" style="display: flex;justify-content: space-between;">
@@ -144,6 +164,23 @@ const sendTotal = ref(0)
 const accountTotal = ref(0)
 const userTotal = ref(0)
 const analysisLoading = ref(true)
+const storage = reactive({databaseBytes: 0, d1LimitBytes: 500 * 1024 * 1024, databaseUsagePercent: 0, attachmentBytes: 0, attachmentTotal: 0, dailyGrowth7d: 0, dailyGrowth30d: 0, estimatedDaysRemaining: null, level: 'normal'})
+
+const storageTagType = computed(() => storage.level === 'normal' ? 'success' : storage.level === 'warning' ? 'warning' : 'danger')
+const storageProgressStatus = computed(() => storage.level === 'normal' ? 'success' : storage.level === 'warning' ? 'warning' : 'exception')
+const storageLevelText = computed(() => ({normal: '容量正常', warning: '需要关注', danger: '容量告警', critical: '容量紧急'}[storage.level] || '容量正常'))
+const remainingDaysText = computed(() => storage.estimatedDaysRemaining === null ? '增长稳定' : storage.estimatedDaysRemaining > 3650 ? '10 年以上' : `${storage.estimatedDaysRemaining} 天`)
+const storageAlertText = computed(() => storage.level === 'warning' ? '数据库已超过容量基准的 70%，建议清理回收站和历史邮件。' : storage.level === 'danger' ? '数据库已超过容量基准的 85%，请尽快清理或升级容量。' : '数据库已超过容量基准的 95%，存在停止写入风险，请立即处理。')
+
+function formatBytes(value) {
+  const bytes = Number(value || 0)
+  if (bytes < 1024) return `${bytes} B`
+  const units = ['KB', 'MB', 'GB', 'TB']
+  let size = bytes / 1024
+  let index = 0
+  while (size >= 1024 && index < units.length - 1) { size /= 1024; index++ }
+  return `${size >= 100 ? size.toFixed(0) : size >= 10 ? size.toFixed(1) : size.toFixed(2)} ${units[index]}`
+}
 
 const numberCount = reactive({
   normalReceiveTotal: 0,
@@ -237,6 +274,7 @@ onMounted(() => {
     emailColumnData.receiveData = data.emailDayCount.receiveDayCount.map(item => item.total)
     emailColumnData.sendData = data.emailDayCount.sendDayCount.map(item => item.total)
     daySendTotal = data.daySendTotal
+    Object.assign(storage, data.storage || {})
     analysisLoading.value = false
     initPicture();
     first = false
@@ -764,6 +802,46 @@ function createSendGauge() {
     font-weight: 500;
   }
 
+  .storage-panel {
+    padding: 20px;
+    background: var(--el-bg-color);
+    border: 1px solid var(--el-border-color);
+    border-radius: 8px;
+  }
+
+  .storage-head, .storage-label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+  }
+
+  .storage-title { font-size: 18px; font-weight: 600; }
+  .storage-subtitle, .storage-note { margin-top: 5px; color: var(--el-text-color-secondary); font-size: 13px; }
+
+  .storage-grid {
+    display: grid;
+    grid-template-columns: minmax(300px, 2fr) repeat(3, minmax(150px, 1fr));
+    gap: 20px;
+    margin-top: 20px;
+    margin-bottom: 16px;
+    @media (max-width: 1100px) { grid-template-columns: 1fr 1fr; }
+    @media (max-width: 640px) { grid-template-columns: 1fr; }
+  }
+
+  .storage-main, .storage-stat {
+    min-width: 0;
+    padding: 14px;
+    background: var(--el-fill-color-light);
+    border-radius: 6px;
+  }
+
+  .storage-label { margin-bottom: 12px; font-size: 14px; }
+  .storage-label strong { font-size: 16px; }
+  .storage-stat { display: flex; flex-direction: column; gap: 7px; }
+  .storage-stat span, .storage-stat small { color: var(--el-text-color-secondary); }
+  .storage-stat strong { font-size: 21px; font-weight: 600; overflow-wrap: anywhere; }
+
   .number {
     display: grid;
     grid-template-columns: 1fr 1fr 1fr 1fr;
@@ -925,8 +1003,6 @@ function createSendGauge() {
 }
 
 </style>
-
-
 
 
 

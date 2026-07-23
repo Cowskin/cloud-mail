@@ -48,6 +48,45 @@ const analysisDao = {
 		return results[0];
 	},
 
+	async storageUsage(c) {
+		const query = await c.env.db.prepare(`
+			SELECT
+				(SELECT COUNT(*) FROM email) AS emailTotal,
+				(SELECT COALESCE(SUM(
+					LENGTH(COALESCE(subject, '')) + LENGTH(COALESCE(text, '')) +
+					LENGTH(COALESCE(content, '')) + LENGTH(COALESCE(message, '')) +
+					LENGTH(COALESCE(cc, '')) + LENGTH(COALESCE(bcc, ''))
+				), 0) FROM email) AS emailContentBytes,
+				(SELECT COUNT(*) FROM attachments) AS attachmentTotal,
+				(SELECT COALESCE(SUM(size), 0) FROM (
+					SELECT MAX(COALESCE(size, 0)) AS size FROM attachments GROUP BY key
+				)) AS attachmentBytes,
+				(SELECT COALESCE(SUM(size), 0) FROM (
+					SELECT MAX(COALESCE(size, 0)) AS size FROM attachments
+					WHERE create_time >= datetime('now', '-7 days') GROUP BY key
+				)) AS attachmentBytes7d,
+				(SELECT COALESCE(SUM(size), 0) FROM (
+					SELECT MAX(COALESCE(size, 0)) AS size FROM attachments
+					WHERE create_time >= datetime('now', '-30 days') GROUP BY key
+				)) AS attachmentBytes30d,
+				(SELECT COALESCE(SUM(
+					LENGTH(COALESCE(subject, '')) + LENGTH(COALESCE(text, '')) +
+					LENGTH(COALESCE(content, '')) + LENGTH(COALESCE(message, '')) +
+					LENGTH(COALESCE(cc, '')) + LENGTH(COALESCE(bcc, ''))
+				), 0) FROM email WHERE create_time >= datetime('now', '-7 days')) AS emailBytes7d,
+				(SELECT COALESCE(SUM(
+					LENGTH(COALESCE(subject, '')) + LENGTH(COALESCE(text, '')) +
+					LENGTH(COALESCE(content, '')) + LENGTH(COALESCE(message, '')) +
+					LENGTH(COALESCE(cc, '')) + LENGTH(COALESCE(bcc, ''))
+				), 0) FROM email WHERE create_time >= datetime('now', '-30 days')) AS emailBytes30d
+		`).all();
+
+		return {
+			...query.results[0],
+			databaseBytes: Number(query.meta?.size_after || 0)
+		};
+	},
+
 	async userDayCount(c, diffHours) {
 		const { results } = await c.env.db.prepare(`
             SELECT

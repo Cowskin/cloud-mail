@@ -58,6 +58,7 @@ const analysisService = {
 
 		const [
 			numberCount,
+			storageUsage,
 			nameRatio,
 			userDayCountRaw,
 			receiveDayCountRaw,
@@ -65,6 +66,7 @@ const analysisService = {
 			daySendTotalRaw
 		] = await Promise.all([
 			analysisDao.numberCount(c),
+			analysisDao.storageUsage(c),
 
 			orm(c)
 				.select({ name: email.name, total: count() })
@@ -89,8 +91,29 @@ const analysisService = {
 
 		const daySendTotal = daySendTotalRaw || 0;
 
+		const d1LimitBytes = Math.max(1, Number(c.env.storage_d1_limit_mb || 500)) * 1024 * 1024;
+		const attachmentLimitMb = Number(c.env.storage_attachment_limit_mb || 0);
+		const databaseBytes = Number(storageUsage.databaseBytes || 0);
+		const attachmentBytes = Number(storageUsage.attachmentBytes || 0);
+		const dailyGrowth7d = Math.ceil((Number(storageUsage.emailBytes7d || 0) + Number(storageUsage.attachmentBytes7d || 0)) / 7);
+		const dailyGrowth30d = Math.ceil((Number(storageUsage.emailBytes30d || 0) + Number(storageUsage.attachmentBytes30d || 0)) / 30);
+		const databaseUsagePercent = Math.min(100, databaseBytes / d1LimitBytes * 100);
+		const remainingBytes = Math.max(0, d1LimitBytes - databaseBytes);
+		const estimatedDaysRemaining = dailyGrowth7d > 0 ? Math.floor(remainingBytes / dailyGrowth7d) : null;
+
 		return {
 			numberCount,
+			storage: {
+				...storageUsage,
+				d1LimitBytes,
+				attachmentLimitBytes: attachmentLimitMb > 0 ? attachmentLimitMb * 1024 * 1024 : null,
+				databaseUsagePercent: Number(databaseUsagePercent.toFixed(2)),
+				dailyGrowth7d,
+				dailyGrowth30d,
+				estimatedDaysRemaining,
+				level: databaseUsagePercent >= 95 ? 'critical' : databaseUsagePercent >= 85 ? 'danger' : databaseUsagePercent >= 70 ? 'warning' : 'normal',
+				measuredAt: new Date().toISOString()
+			},
 			userDayCount,
 			receiveRatio: {
 				nameRatio
