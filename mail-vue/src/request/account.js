@@ -16,6 +16,14 @@ export function accountDelete(accountId) {
     return http.delete('/account/delete', {params: {accountId}})
 }
 
+export function accountDeletedList() {
+    return http.get('/account/deletedList')
+}
+
+export function accountRestore(accountId) {
+    return http.put('/account/restore', {accountId})
+}
+
 export function accountSetAllReceive(accountId) {
     return http.put('/account/setAllReceive', {accountId})
 }

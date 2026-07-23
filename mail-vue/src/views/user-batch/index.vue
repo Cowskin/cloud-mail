@@ -62,36 +62,46 @@
       <el-tab-pane label="收件箱分组" name="groups">
         <div class="group-toolbar">
           <el-input v-model="groupKeyword" clearable placeholder="搜索分组" @keyup.enter="loadGroups"><template #prefix><Icon icon="iconoir:search" /></template></el-input>
-          <el-switch v-model="showDeletedGroups" inline-prompt active-text="回收站" inactive-text="当前" @change="loadGroups" />
         </div>
         <div class="group-layout">
           <section class="group-tree-panel">
             <el-tree :data="groupTree" node-key="groupId" highlight-current :expand-on-click-node="false" default-expand-all @node-click="selectGroup">
               <template #default="{data}"><div class="tree-node"><Icon :icon="data.isDel ? 'solar:trash-bin-trash-outline' : 'solar:folder-with-files-outline'" /><span>{{ data.name }}</span><el-tag size="small" type="info">{{ data.inboxCount }}</el-tag><Icon v-if="data.protected" icon="solar:lock-keyhole-outline" /></div></template>
             </el-tree>
-            <el-empty v-if="!groupTree.length" :description="showDeletedGroups ? '回收站为空' : '尚未创建批量收件箱'" :image-size="70" />
+            <el-empty v-if="!groupTree.length" description="尚未创建批量收件箱" :image-size="70" />
           </section>
           <section class="group-detail">
             <template v-if="selectedGroup">
               <div class="section-heading group-heading">
-                <div><h3>{{ selectedGroup.name }}</h3><span>{{ selectedGroup.inboxCount }} 个收件箱 · {{ selectedGroup.emailCount }} 封邮件 · {{ selectedGroup.unreadCount }} 封未读</span></div>
+                <div><h3>{{ selectedGroup.name }}</h3><span>正常 {{ selectedGroup.activeInboxCount }} · 已删除 {{ selectedGroup.deletedInboxCount }} · {{ selectedGroup.emailCount }} 封邮件 · {{ selectedGroup.unreadCount }} 封未读</span></div>
                 <div class="group-actions">
                   <el-button :loading="exportingGroup" @click="exportGroup"><Icon icon="solar:download-minimalistic-outline" />导出全部</el-button>
-                  <el-button v-if="!selectedGroup.isDel" @click="toggleGroupProtection"><Icon :icon="selectedGroup.protected ? 'solar:lock-keyhole-unlocked-outline' : 'solar:lock-keyhole-outline'" />{{ selectedGroup.protected ? '解除保护' : '保护分组' }}</el-button>
-                  <el-button v-if="selectedGroup.isDel" type="success" @click="restoreGroup"><Icon icon="solar:restart-outline" />批量恢复</el-button>
-                  <el-button v-if="selectedGroup.isDel" type="danger" @click="purgeGroup"><Icon icon="solar:trash-bin-minimalistic-outline" />永久删除</el-button>
-                  <el-button v-else type="danger" :disabled="!!selectedGroup.protected" @click="removeGroup"><Icon icon="solar:trash-bin-trash-outline" />删除</el-button>
+                  <el-button @click="toggleGroupProtection"><Icon :icon="selectedGroup.protected ? 'solar:lock-keyhole-unlocked-outline' : 'solar:lock-keyhole-outline'" />{{ selectedGroup.protected ? '解除保护' : '保护分组' }}</el-button>
+                  <el-button type="danger" :disabled="!!selectedGroup.protected" @click="removeGroup"><Icon icon="solar:trash-bin-trash-outline" />删除整个分组</el-button>
                 </div>
               </div>
-              <div class="member-filter"><el-input v-model="memberQuery.keyword" clearable placeholder="搜索组内收件箱" @keyup.enter="searchMembers" /><el-button @click="searchMembers">搜索</el-button></div>
+              <div class="member-filter"><el-input v-model="memberQuery.keyword" clearable placeholder="搜索组内收件箱" @keyup.enter="searchMembers" /><el-segmented v-model="memberQuery.status" :options="memberStatusOptions" @change="searchMembers" /><el-button @click="searchMembers">搜索</el-button></div>
               <el-table :data="groupMembers" height="430" stripe v-loading="membersLoading">
-                <el-table-column prop="email" label="收件箱" min-width="240" /><el-table-column prop="emailCount" label="邮件" width="85" /><el-table-column prop="unreadCount" label="未读" width="85" /><el-table-column prop="latestEmailTime" label="最近收件" min-width="160" /><el-table-column label="状态" width="90"><template #default="scope"><el-tag :type="scope.row.isDel ? 'info' : 'success'">{{ scope.row.isDel ? '已删除' : '正常' }}</el-tag></template></el-table-column>
+                <el-table-column prop="email" label="收件箱" min-width="240" /><el-table-column prop="emailCount" label="邮件" width="85" /><el-table-column prop="unreadCount" label="未读" width="85" /><el-table-column prop="latestEmailTime" label="最近收件" min-width="160" /><el-table-column label="状态" width="90"><template #default="scope"><el-tag :type="scope.row.isDel ? 'info' : 'success'">{{ scope.row.isDel ? '已删除' : '正常' }}</el-tag></template></el-table-column><el-table-column label="操作" width="120"><template #default="scope"><el-button v-if="scope.row.isDel" link type="primary" @click="goRecovery">去恢复中心</el-button><span v-else class="muted">—</span></template></el-table-column>
               </el-table>
               <div class="detail-footer"><span class="muted">共 {{ memberTotal }} 个收件箱</span><el-pagination background small layout="prev, pager, next" :current-page="memberQuery.page" :page-size="memberQuery.size" :total="memberTotal" @current-change="changeMemberPage" /></div>
             </template>
             <el-empty v-else description="从左侧选择一个收件箱分组" />
           </section>
         </div>
+      </el-tab-pane>
+
+      <el-tab-pane label="恢复中心" name="recovery">
+        <section class="recovery-section">
+          <div class="recovery-toolbar"><el-segmented v-model="recoveryType" :options="recoveryOptions" /><el-button :loading="recoveryLoading" @click="loadRecovery"><Icon icon="ion:reload" />刷新</el-button></div>
+          <el-alert class="recovery-tip" type="info" :closable="false" show-icon title="单独删除的邮箱可按条恢复；随整个分组删除的邮箱只在“已删除分组”中整体恢复。" />
+          <el-table v-if="recoveryType === 'mailbox'" :data="deletedMailboxes" height="520" v-loading="recoveryLoading" empty-text="没有已删除邮箱">
+            <el-table-column prop="email" label="邮箱" min-width="250" /><el-table-column label="来源" min-width="180"><template #default="scope"><el-tag effect="plain" :type="scope.row.groupName ? 'primary' : 'info'">{{ scope.row.groupName || '未分组' }}</el-tag></template></el-table-column><el-table-column prop="createTime" label="创建时间" min-width="165" /><el-table-column label="操作" width="100"><template #default="scope"><el-button link type="primary" @click="restoreDeletedMailbox(scope.row)">恢复</el-button></template></el-table-column>
+          </el-table>
+          <el-table v-else :data="deletedGroups" height="520" v-loading="recoveryLoading" empty-text="没有已删除分组">
+            <el-table-column prop="name" label="分组" min-width="220" /><el-table-column prop="inboxCount" label="收件箱" width="100" /><el-table-column prop="emailCount" label="邮件" width="90" /><el-table-column prop="createTime" label="创建时间" min-width="165" /><el-table-column label="操作" width="190"><template #default="scope"><el-button link type="success" @click="restoreDeletedGroup(scope.row)">恢复整个分组</el-button><el-button link type="danger" @click="purgeDeletedGroup(scope.row)">永久删除</el-button></template></el-table-column>
+          </el-table>
+        </section>
       </el-tab-pane>
 
       <el-tab-pane label="批次记录" name="history">
@@ -127,6 +137,7 @@ import {Icon} from '@iconify/vue'
 import {roleSelectUse} from '@/request/role.js'
 import {inboxGroupDelete, inboxGroupList, inboxGroupMembers, inboxGroupProtect, inboxGroupPurge, inboxGroupRestore, userBatchCreate, userBatchItems, userBatchList, userBatchPrecheck} from '@/request/user-batch.js'
 import {useSettingStore} from '@/store/setting.js'
+import {accountDeletedList, accountRestore} from '@/request/account.js'
 
 defineOptions({name: 'user-batch'})
 const settingStore = useSettingStore()
@@ -140,37 +151,39 @@ const availableCount = computed(() => preview.value.filter(item => item.status =
 const conflictCount = computed(() => preview.value.length - availableCount.value)
 const canCreate = computed(() => preview.value.length && !previewCreated.value && availableCount.value && (!form.stopOnConflict || conflictCount.value === 0))
 
-const groups = ref([]), groupKeyword = ref(''), showDeletedGroups = ref(false), selectedGroup = ref(null), groupMembers = ref([]), memberTotal = ref(0), membersLoading = ref(false)
+const groups = ref([]), groupKeyword = ref(''), selectedGroup = ref(null), groupMembers = ref([]), memberTotal = ref(0), membersLoading = ref(false)
 const exportingGroup = ref(false)
-const memberQuery = reactive({keyword: '', page: 1, size: 50})
+const memberQuery = reactive({keyword: '', status: '', page: 1, size: 50})
+const memberStatusOptions = [{label: '全部邮箱', value: ''}, {label: '正常邮箱', value: 'active'}, {label: '已删除邮箱', value: 'deleted'}]
 const groupTree = computed(() => groups.value)
 const batches = ref([]), batchTotal = ref(0), batchLoading = ref(false)
 const batchQuery = reactive({keyword: '', mode: '', domain: '', resultStatus: '', page: 1, size: 20})
+const recoveryType = ref('mailbox'), recoveryLoading = ref(false), deletedMailboxes = ref([]), deletedGroups = ref([])
+const recoveryOptions = [{label: '已删除邮箱', value: 'mailbox'}, {label: '已删除分组', value: 'group'}]
 const batchDetailVisible = ref(false), selectedBatch = ref(null), batchItems = ref([]), batchItemTotal = ref(0), batchItemsLoading = ref(false), exportingBatch = ref(false)
 const batchItemQuery = reactive({email: '', status: '', page: 1, size: 50})
 
 watch(() => [form.mode, form.suffix, form.prefix, form.separator, form.start, form.count, form.padding, form.type, form.passwordMode, form.passwordLength, form.fixedPassword], clearPreview)
 
-onMounted(async () => { roles.value = await roleSelectUse(); form.type = roles.value[0]?.roleId || null; await Promise.all([loadGroups(), loadBatches()]) })
+onMounted(async () => { roles.value = await roleSelectUse(); form.type = roles.value[0]?.roleId || null; await Promise.all([loadGroups(), loadBatches(), loadRecovery()]) })
 
 function randomPassword(length) { const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%'; const bytes = new Uint32Array(length); crypto.getRandomValues(bytes); return Array.from(bytes, value => chars[value % chars.length]).join('') }
 function validateForm() { if (!form.batchName.trim()) return '请输入名称'; if (!form.prefix.trim() || !/^[a-zA-Z0-9._-]+$/.test(form.prefix)) return '邮箱前缀格式不正确'; if (form.mode === 'user' && !form.type) return '请选择权限身份'; if (form.mode === 'user' && form.passwordMode === 'fixed' && form.fixedPassword.length < 6) return '统一密码至少需要 6 位'; return '' }
 function clearPreview() { preview.value = []; previewCreated.value = false; requestId.value = ''; lastCreatedGroupId.value = null }
 async function generatePreview() { const error = validateForm(); if (error) return ElMessage.warning(error); checking.value = true; previewCreated.value = false; requestId.value = crypto.randomUUID(); try { const candidates = Array.from({length: form.count}, (_, index) => { const number = String(form.start + index).padStart(form.padding, '0'); return {email: `${form.prefix}${form.separator}${number}${form.suffix}`.toLowerCase(), password: form.mode === 'user' ? (form.passwordMode === 'random' ? randomPassword(form.passwordLength) : form.fixedPassword) : '', type: form.mode === 'user' ? form.type : 0} }); const checked = await userBatchPrecheck(candidates.map(item => item.email)); preview.value = candidates.map((item, index) => ({...item, ...checked.results[index], error: ''})) } finally { checking.value = false } }
 async function createBatch() { const confirmed = await ElMessageBox.confirm(`将创建 ${availableCount.value} 个${form.mode === 'inbox' ? '收件箱' : '独立账户'}。`, `确认创建“${form.batchName.trim()}”`, {confirmButtonText: '确认创建', cancelButtonText: '取消', type: 'warning'}).then(() => true).catch(() => false); if (!confirmed) return; creating.value = true; try { const rows = form.stopOnConflict ? preview.value : preview.value.filter(item => item.status === 'available'); const data = await userBatchCreate({requestId: requestId.value, stopOnConflict: form.stopOnConflict, mode: form.mode, batchName: form.batchName.trim(), rule: {prefix: form.prefix, separator: form.separator, start: form.start, count: rows.length, padding: form.padding, suffix: form.suffix, category: form.category.trim(), note: form.note.trim()}, list: rows.map(({email, password, type}) => ({email, password, type}))}); const resultMap = new Map(data.results.map(item => [item.email, item])); preview.value = preview.value.map(item => resultMap.has(item.email) ? {...item, ...resultMap.get(item.email), label: resultMap.get(item.email).success ? '创建成功' : '创建失败'} : item); previewCreated.value = true; lastCreatedGroupId.value = data.groupId || null; ElMessage.success(`创建完成：成功 ${data.successCount} 个，失败 ${data.failedCount} 个`); await Promise.all([loadGroups(), loadBatches()]) } finally { creating.value = false } }
-async function openCreatedGroup() { activeTab.value = 'groups'; showDeletedGroups.value = false; await loadGroups(); const group = groups.value.find(item => item.groupId === lastCreatedGroupId.value); if (group) await selectGroup(group) }
+async function openCreatedGroup() { activeTab.value = 'groups'; await loadGroups(); const group = groups.value.find(item => item.groupId === lastCreatedGroupId.value); if (group) await selectGroup(group) }
 function startNextBatch() { const nextStart = form.start + form.count; clearPreview(); form.start = nextStart; form.batchName = ''; activeTab.value = 'create' }
 function statusType(status) { return status === 'available' ? 'success' : status === 'deleted' ? 'warning' : status === 'invalid' ? 'danger' : 'info' }
 
-async function loadGroups() { groups.value = await inboxGroupList({keyword: groupKeyword.value, deleted: showDeletedGroups.value ? '1' : '0'}); if (selectedGroup.value && !groups.value.some(item => item.groupId === selectedGroup.value.groupId)) { selectedGroup.value = null; groupMembers.value = []; memberTotal.value = 0 } }
-async function selectGroup(group) { selectedGroup.value = group; Object.assign(memberQuery, {keyword: '', page: 1}); await loadMembers() }
+async function loadGroups() { groups.value = await inboxGroupList({keyword: groupKeyword.value, deleted: '0'}); if (selectedGroup.value && !groups.value.some(item => item.groupId === selectedGroup.value.groupId)) { selectedGroup.value = null; groupMembers.value = []; memberTotal.value = 0 } }
+async function selectGroup(group) { selectedGroup.value = group; Object.assign(memberQuery, {keyword: '', status: '', page: 1}); await loadMembers() }
 async function loadMembers() { if (!selectedGroup.value) return; membersLoading.value = true; try { const data = await inboxGroupMembers({groupId: selectedGroup.value.groupId, ...memberQuery}); groupMembers.value = data.list; memberTotal.value = data.total } finally { membersLoading.value = false } }
 function searchMembers() { memberQuery.page = 1; loadMembers() }
 function changeMemberPage(page) { memberQuery.page = page; loadMembers() }
+function goRecovery() { recoveryType.value = 'mailbox'; activeTab.value = 'recovery'; loadRecovery() }
 async function toggleGroupProtection() { const next = !selectedGroup.value.protected; await inboxGroupProtect({groupId: selectedGroup.value.groupId, protected: next}); selectedGroup.value.protected = next; await loadGroups(); ElMessage.success(next ? '分组已保护' : '已解除保护') }
-async function removeGroup() { let confirmName = ''; if (selectedGroup.value.emailCount > 0) { const answer = await ElMessageBox.prompt(`组内有 ${selectedGroup.value.emailCount} 封邮件。输入完整组名后移入回收站。`, '高风险删除', {confirmButtonText: '移入回收站', cancelButtonText: '取消', inputPlaceholder: selectedGroup.value.name, inputValidator: value => value === selectedGroup.value.name || '组名不匹配'}).catch(() => null); if (!answer) return; confirmName = answer.value } else { const ok = await ElMessageBox.confirm(`将 ${selectedGroup.value.inboxCount} 个收件箱移入回收站，可批量恢复。`, '确认删除分组', {confirmButtonText: '移入回收站', cancelButtonText: '取消', type: 'warning'}).then(() => true).catch(() => false); if (!ok) return } await inboxGroupDelete({groupId: selectedGroup.value.groupId, confirmName, deleteInboxes: true}); selectedGroup.value = null; await loadGroups(); ElMessage.success('分组和收件箱已移入回收站') }
-async function restoreGroup() { await inboxGroupRestore(selectedGroup.value.groupId); selectedGroup.value = null; await loadGroups(); ElMessage.success('分组及随组删除的收件箱已恢复') }
-async function purgeGroup() { const answer = await ElMessageBox.prompt('此操作不可恢复。请输入完整组名确认永久删除。', '永久删除分组及全部数据', {confirmButtonText: '永久删除', cancelButtonText: '取消', inputPlaceholder: selectedGroup.value.name, inputValidator: value => value === selectedGroup.value.name || '组名不匹配'}).catch(() => null); if (!answer) return; await inboxGroupPurge({groupId: selectedGroup.value.groupId, confirmName: answer.value}); selectedGroup.value = null; await loadGroups(); ElMessage.success('分组及关联数据已永久删除') }
+async function removeGroup() { let confirmName = ''; if (selectedGroup.value.emailCount > 0) { const answer = await ElMessageBox.prompt(`组内有 ${selectedGroup.value.emailCount} 封邮件。输入完整组名确认删除整个分组。`, '高风险删除', {confirmButtonText: '删除整个分组', cancelButtonText: '取消', inputPlaceholder: selectedGroup.value.name, inputValidator: value => value === selectedGroup.value.name || '组名不匹配'}).catch(() => null); if (!answer) return; confirmName = answer.value } else { const ok = await ElMessageBox.confirm(`将同时删除组内 ${selectedGroup.value.inboxCount} 个收件箱，之后可从恢复中心整体恢复。`, '确认删除整个分组', {confirmButtonText: '删除整个分组', cancelButtonText: '取消', type: 'warning'}).then(() => true).catch(() => false); if (!ok) return } await inboxGroupDelete({groupId: selectedGroup.value.groupId, confirmName, deleteInboxes: true}); selectedGroup.value = null; await Promise.all([loadGroups(), loadRecovery()]); ElMessage.success('已删除整个分组，可在“恢复中心”中恢复') }
 async function exportGroup() { exportingGroup.value = true; try { const rows = []; const size = 100; const pages = Math.ceil(selectedGroup.value.inboxCount / size) || 1; for (let page = 1; page <= pages; page++) { const data = await inboxGroupMembers({groupId: selectedGroup.value.groupId, page, size}); rows.push(...data.list) } downloadCsv(`${selectedGroup.value.name}-全部收件箱.csv`, ['邮箱', '邮件数', '未读数', '最近收件', '状态'], rows.map(item => [item.email, item.emailCount, item.unreadCount, item.latestEmailTime, item.isDel ? '已删除' : '正常'])); ElMessage.success(`已导出 ${rows.length} 个收件箱`) } finally { exportingGroup.value = false } }
 
 async function loadBatches() { batchLoading.value = true; try { const data = await userBatchList(batchQuery); batches.value = data.list; batchTotal.value = data.total } finally { batchLoading.value = false } }
@@ -183,19 +196,25 @@ function searchBatchItems() { batchItemQuery.page = 1; loadBatchItems() }
 function changeBatchItemPage(page) { batchItemQuery.page = page; loadBatchItems() }
 async function exportBatchItems() { exportingBatch.value = true; try { const data = await userBatchItems({batchId: selectedBatch.value.batchId, email: batchItemQuery.email, status: batchItemQuery.status, export: '1'}); downloadCsv(`${selectedBatch.value.name}-结果.csv`, ['邮箱', '状态', '说明'], data.list.map(item => [item.email, item.status ? '成功' : '失败', item.error])); ElMessage.success(`已导出 ${data.list.length} 条结果`) } finally { exportingBatch.value = false } }
 function formatRule(rule = {}) { return `${rule.prefix || ''}${rule.separator || ''}${String(rule.start || 0).padStart(rule.padding || 1, '0')}…${rule.suffix || ''}，${rule.count || 0} 个` }
-function refreshCurrent() { if (activeTab.value === 'groups') loadGroups(); else if (activeTab.value === 'history') loadBatches(); else if (preview.value.length) generatePreview(); else ElMessage.info('填写规则后点击“检测并预览”') }
+function refreshCurrent() { if (activeTab.value === 'groups') loadGroups(); else if (activeTab.value === 'history') loadBatches(); else if (activeTab.value === 'recovery') loadRecovery(); else if (preview.value.length) generatePreview(); else ElMessage.info('填写规则后点击“检测并预览”') }
 function csvCell(value) { return `"${String(value ?? '').replaceAll('"', '""')}"` }
 function downloadCsv(filename, headers, rows) { const content = '\uFEFF' + [headers, ...rows].map(row => row.map(csvCell).join(',')).join('\n'); const url = URL.createObjectURL(new Blob([content], {type: 'text/csv;charset=utf-8'})); const link = document.createElement('a'); link.href = url; link.download = filename; link.click(); URL.revokeObjectURL(url) }
 function exportCurrent() { const headers = form.mode === 'user' ? ['邮箱', '密码', '状态', '说明'] : ['邮箱', '状态', '说明']; const rows = preview.value.map(item => form.mode === 'user' ? [item.email, item.password, item.label, item.error] : [item.email, item.label, item.error]); downloadCsv(`${form.batchName || '批量创建'}.csv`, headers, rows) }
+
+async function loadRecovery() { recoveryLoading.value = true; try { const [mailboxes, groupRows] = await Promise.all([accountDeletedList(), inboxGroupList({deleted: '1'})]); deletedMailboxes.value = mailboxes; deletedGroups.value = groupRows } finally { recoveryLoading.value = false } }
+async function restoreDeletedMailbox(row) { await accountRestore(row.accountId); await Promise.all([loadRecovery(), loadGroups()]); if (selectedGroup.value?.groupId === row.groupId) await loadMembers(); ElMessage.success(`已恢复 ${row.email}`) }
+async function restoreDeletedGroup(row) { await inboxGroupRestore(row.groupId); await Promise.all([loadRecovery(), loadGroups()]); ElMessage.success('已恢复整个分组') }
+async function purgeDeletedGroup(row) { const answer = await ElMessageBox.prompt('此操作会永久删除组内邮箱、邮件和附件。请输入完整组名确认。', '永久删除整个分组', {confirmButtonText: '永久删除', cancelButtonText: '取消', inputPlaceholder: row.name, inputValidator: value => value === row.name || '组名不匹配'}).catch(() => null); if (!answer) return; await inboxGroupPurge({groupId: row.groupId, confirmName: answer.value}); await loadRecovery(); ElMessage.success('已永久删除整个分组') }
 </script>
 
 <style scoped lang="scss">
 .batch-page { height: 100%; overflow: auto; padding: 18px 22px 30px; box-sizing: border-box; }.page-toolbar,.section-heading { display:flex; align-items:center; justify-content:space-between; gap:16px } h2,h3 { margin:0; letter-spacing:0 }.page-toolbar p,.section-heading span { margin:5px 0 0; color:var(--el-text-color-secondary); font-size:13px }
 .mode-section { display:flex; align-items:center; gap:18px; padding:8px 0 18px; flex-wrap:wrap }.mode-label { font-weight:600 }.mode-facts { display:flex; gap:18px; color:var(--el-text-color-regular); font-size:13px }.mode-facts span { display:flex; align-items:center; gap:5px }.rule-section,.preview-section,.group-tree-panel,.group-detail { border-top:1px solid var(--el-border-color); padding-top:18px }.rule-grid { display:grid; grid-template-columns:repeat(4,minmax(150px,1fr)); gap:0 16px }.rule-grid :deep(.el-input-number),.rule-grid :deep(.el-select) { width:100% }.create-policy { display:flex; align-items:center; gap:14px; flex-wrap:wrap }.actions { display:flex; justify-content:flex-end; gap:10px; margin:14px 0 18px }.preview-section { margin-top:4px }.section-heading { margin-bottom:14px }.muted { color:var(--el-text-color-secondary); font-size:12px }
 .password-alert { margin-top:14px }.create-success { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:12px 14px; margin-bottom:18px; border:1px solid var(--el-color-success-light-5); border-radius:6px; background:var(--el-color-success-light-9) }.create-success>div { display:flex; align-items:center; gap:8px }.create-success svg { color:var(--el-color-success); font-size:20px; flex:none }
-.group-toolbar { display:flex; gap:12px; align-items:center; padding:4px 0 16px }.group-toolbar .el-input { max-width:300px }.group-layout { display:grid; grid-template-columns:minmax(280px,.55fr) minmax(620px,1.45fr); gap:22px }.group-tree-panel { min-height:540px }.tree-node { display:flex; align-items:center; gap:8px; width:100%; min-width:0 }.tree-node span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap }.group-actions { display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end }.member-filter { display:grid; grid-template-columns:minmax(220px,1fr) auto; gap:10px; margin-bottom:12px }.detail-footer { display:flex; justify-content:space-between; align-items:center; margin-top:12px }
+.group-toolbar { display:flex; gap:12px; align-items:center; padding:4px 0 16px }.group-toolbar .el-input { max-width:300px }.group-layout { display:grid; grid-template-columns:minmax(280px,.55fr) minmax(620px,1.45fr); gap:22px }.group-tree-panel { min-height:540px }.tree-node { display:flex; align-items:center; gap:8px; width:100%; min-width:0 }.tree-node span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap }.group-actions { display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end }.member-filter { display:grid; grid-template-columns:minmax(220px,1fr) auto auto; gap:10px; margin-bottom:12px }.detail-footer { display:flex; justify-content:space-between; align-items:center; margin-top:12px }
 .history-filters { display:grid; grid-template-columns:minmax(200px,1fr) 150px 180px 150px auto auto; gap:10px; padding:4px 0 16px }.pagination { justify-content:center; margin-top:14px }
+.recovery-section { padding-top:4px }.recovery-toolbar { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px }.recovery-tip { margin-bottom:14px }
 .clickable-table :deep(.el-table__row) { cursor:pointer }.batch-summary { display:flex; justify-content:space-between; gap:16px; padding:0 0 16px; color:var(--el-text-color-secondary) }.batch-summary>div:first-child { display:flex; gap:10px; align-items:center; color:var(--el-text-color-primary) }.batch-item-filter { display:grid; grid-template-columns:minmax(180px,1fr) 130px auto auto; gap:10px; margin:16px 0 12px }
 @media(max-width:1200px){.rule-grid{grid-template-columns:repeat(2,minmax(150px,1fr))}.group-layout{grid-template-columns:1fr}.history-filters{grid-template-columns:repeat(3,1fr)}}
-@media(max-width:600px){.batch-page{padding:14px}.rule-grid,.history-filters,.member-filter,.batch-item-filter{grid-template-columns:1fr}.page-toolbar,.section-heading,.create-success,.batch-summary{align-items:flex-start;flex-wrap:wrap}.mode-facts{flex-direction:column;gap:6px}.group-layout{display:block}.group-detail{margin-top:20px}.group-actions{justify-content:flex-start}.detail-footer{flex-direction:column;align-items:flex-start;gap:8px}.group-toolbar{align-items:flex-start;flex-direction:column}.group-toolbar .el-input{max-width:none;width:100%}.create-success>div:last-child{width:100%;flex-wrap:wrap}}
+@media(max-width:600px){.batch-page{padding:14px}.rule-grid,.history-filters,.member-filter,.batch-item-filter{grid-template-columns:1fr}.page-toolbar,.section-heading,.create-success,.batch-summary,.recovery-toolbar{align-items:flex-start;flex-wrap:wrap}.mode-facts{flex-direction:column;gap:6px}.group-layout{display:block}.group-detail{margin-top:20px}.group-actions{justify-content:flex-start}.detail-footer{flex-direction:column;align-items:flex-start;gap:8px}.group-toolbar{align-items:flex-start;flex-direction:column}.group-toolbar .el-input{max-width:none;width:100%}.create-success>div:last-child{width:100%;flex-wrap:wrap}}
 </style>

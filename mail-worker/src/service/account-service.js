@@ -171,6 +171,39 @@ const accountService = {
 			.run();
 	},
 
+	async deletedList(c, userId) {
+		const { results } = await c.env.db.prepare(`
+			SELECT a.account_id AS accountId, a.email, a.name, a.create_time AS createTime,
+				g.group_id AS groupId, g.name AS groupName
+			FROM account a
+			LEFT JOIN inbox_batch_member m ON m.account_id = a.account_id
+			LEFT JOIN inbox_batch_group g ON g.group_id = m.group_id
+			WHERE a.user_id = ? AND a.is_del = 1
+				AND COALESCE(m.deleted_with_group, 0) = 0
+				AND (g.group_id IS NULL OR g.is_del = 0)
+			ORDER BY a.account_id DESC LIMIT 500
+		`).bind(userId).all();
+		return results;
+	},
+
+	async restore(c, params, userId) {
+		const accountId = Number(params.accountId);
+		if (!accountId) throw new BizError('请选择要恢复的邮箱');
+		const row = await c.env.db.prepare(`
+			SELECT a.email, a.is_del AS isDel, g.is_del AS groupIsDel,
+				COALESCE(m.deleted_with_group, 0) AS deletedWithGroup
+			FROM account a
+			LEFT JOIN inbox_batch_member m ON m.account_id = a.account_id
+			LEFT JOIN inbox_batch_group g ON g.group_id = m.group_id
+			WHERE a.account_id = ? AND a.user_id = ?
+		`).bind(accountId, userId).first();
+		if (!row) throw new BizError('邮箱不存在');
+		if (row.groupIsDel || row.deletedWithGroup) throw new BizError('该邮箱随整个分组删除，请从已删除分组整体恢复');
+		if (!row.isDel) return { accountId, email: row.email };
+		await c.env.db.prepare('UPDATE account SET is_del = 0 WHERE account_id = ? AND user_id = ?').bind(accountId, userId).run();
+		return { accountId, email: row.email };
+	},
+
 	selectById(c, accountId) {
 		return orm(c).select().from(account).where(
 			and(eq(account.accountId, accountId),

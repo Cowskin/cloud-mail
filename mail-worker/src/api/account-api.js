@@ -8,6 +8,14 @@ app.get('/account/list', async (c) => {
 	return c.json(result.ok(list));
 });
 
+app.get('/account/deletedList', async (c) => {
+	return c.json(result.ok(await accountService.deletedList(c, userContext.getUserId(c))));
+});
+
+app.put('/account/restore', async (c) => {
+	return c.json(result.ok(await accountService.restore(c, await c.req.json(), userContext.getUserId(c))));
+});
+
 app.delete('/account/delete', async (c) => {
 	await accountService.delete(c, c.req.query(), userContext.getUserId(c));
 	return c.json(result.ok());
