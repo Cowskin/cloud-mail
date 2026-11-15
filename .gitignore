@@ -25,3 +25,19 @@ mail-vue/node_modules
 mail-vue/dist
 .wrangler
 .venv
+
+# Local operational history and credentials must never enter Git.
+.private/
+.local-archive/
+.dev.vars
+.dev.vars.*
+.env
+.env.local
+.env.*.local
+*.sql
+*.sqlite
+*.sqlite3
+*.sql.gz
+*.bundle
+!mail-worker/migrations/*.sql
+!mail-worker/test/fixtures/*.sql

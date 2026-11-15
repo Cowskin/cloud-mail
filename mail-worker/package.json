@@ -4,12 +4,14 @@
 	"private": true,
 	"scripts": {
 		"dev": "wrangler dev --config wrangler-dev.toml",
-		"test": "wrangler deploy --config wrangler-test.toml",
+		"test": "vitest run",
+		"test:watch": "vitest",
+		"test:serve": "wrangler dev --local --config wrangler-test.toml",
 		"deploy": "wrangler deploy",
 		"start": "wrangler dev"
 	},
 	"devDependencies": {
-		"@cloudflare/vitest-pool-workers": "^0.7.5",
+		"@cloudflare/vitest-pool-workers": "0.10.14",
 		"vitest": "~3.0.7",
 		"wrangler": "^4.90.0"
 	},
