@@ -1,14 +1,9 @@
-name: Verify and optionally deploy Cloud Mail
+name: Verify Cloud Mail
 on:
   push:
-    branches: [main]
+    branches: [main, 'maintenance/**']
   pull_request:
   workflow_dispatch:
-    inputs:
-      confirmation:
-        description: 'Type DEPLOY cloud-mail to release the current branch'
-        required: false
-        type: string
 permissions:
   contents: read
 jobs:
@@ -28,28 +23,4 @@ jobs:
         working-directory: mail-worker
       - run: pnpm install --frozen-lockfile && pnpm run build
         working-directory: mail-vue
-  deploy:
-    if: github.event_name == 'workflow_dispatch' && inputs.confirmation == 'DEPLOY cloud-mail'
-    needs: verify
-    environment: production
-    concurrency: cloudmail-production-release
-    runs-on: ubuntu-latest
-    env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 12.9.1
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - run: pnpm install --frozen-lockfile
-        working-directory: mail-worker
-      - run: node scripts/release-preflight.mjs
-      - run: pnpm install --frozen-lockfile && pnpm run build
-        working-directory: mail-vue
-      - run: pnpm wrangler deploy
-        working-directory: mail-worker
-# Never auto-run /init, rotate secrets, create databases, or delete run history.
+# Local AI/CLI is the only production release entry. CI never deploys or uses cloud credentials.

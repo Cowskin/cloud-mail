@@ -47,11 +47,13 @@ node scripts/release-preflight.mjs
 Wrangler 对未授予的其他产品权限提示，不等同于这些实际操作失败。
 未来部署、域名变更等仍可能需要相应权限，不能据此认定所有权限齐全。
 
-GitHub Actions 普通 push/PR 仅验证；发布需 workflow_dispatch 输入
-`DEPLOY cloud-mail`，通过测试、预检后再构建并部署。凭证只能来自 GitHub Secrets
-`CLOUDFLARE_API_TOKEN` 和 `CLOUDFLARE_ACCOUNT_ID`，未代替用户新建或扩权 Token。
-已移除旧流程自动初始化、覆盖 Secret 和清除运行日志行为。
-Cloudflare 控制台若另有 Git 集成自动发布，需要在合并 main 前另行核对。
+发布方式按用户选择调整为本地 AI/CLI 唯一生产入口，不新增发布脚本。AI 按 AGENTS.md
+完成必要测试、构建、预检、发布记录与上线验证，直接用 Wrangler 发布。
+GitHub Actions 的 push/PR/workflow_dispatch 均只做测试和构建，不读取 Cloudflare
+凭证、不含发布任务；Cloudflare Git 构建禁用。同步源码不应触发任何生产发布。
+CI 是独立复验，本地发布不等待它，因此不能将 CI 称为部署前强制拦截。
+每次发布保存提交、旧/新版本和验证结果，一次只执行一个生产发布任务。
+旧流程的自动初始化、覆盖 Secret 和清除运行日志行为已移除。
 
 ## 恢复操作与密钥限制
 
