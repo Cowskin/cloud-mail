@@ -34,6 +34,13 @@
 
 只需要一个域名，就可以创建多个不同的邮箱，类似各大邮箱平台，本项目支持署到 Cloudflare Workers ，降低服务器成本，搭建自己的邮箱服务
 
+happyx2.com 当前生产资源、备份策略和恢复演练结果见
+[生产运维状态](docs/production-status.md)。文档不包含密码、API Token 或其他密钥。
+
+本机工作目录：`/Users/max/Code/cloudmail`。接手项目先读
+[交接上下文](docs/CONTEXT.md)、[工作约定](AGENTS.md) 和
+[目录迁移记录](docs/relocation-20261115.md)。
+
 ## 项目展示
 
 - [在线演示](https://skymail.ink)<br>
@@ -153,6 +160,5 @@ cloud-mail
 ## 交流
 
 [Telegram](https://t.me/cloud_mail_tg)
-
 
 

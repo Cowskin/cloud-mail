@@ -10,7 +10,11 @@ app.onError((err, c) => {
 	if (err.name === 'BizError') {
 		console.log(err.message);
 	} else {
-		console.error(err);
+		console.error(JSON.stringify({
+			name: err.name, message: err.message,
+			cause: err.cause?.message, stack: err.stack,
+			path: c.req.path, method: c.req.method
+		}));
 	}
 
 	if (err.message === `Cannot read properties of undefined (reading 'get')`) {

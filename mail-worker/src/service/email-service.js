@@ -104,7 +104,7 @@ const emailService = {
 				)
 		).get();
 
-		const latestEmailQuery = orm(c).select().from(email).where(
+		const latestEmailQuery = orm(c).select({ emailId: email.emailId, accountId: email.accountId, userId: email.userId }).from(email).where(
 			and(
 				allReceive ? eq(1,1) : eq(email.accountId, accountId),
 				eq(email.userId, userId),
@@ -811,15 +811,23 @@ const emailService = {
 		}
 
 		if (userEmail) {
-			conditions.push(sql`${user.email} COLLATE NOCASE LIKE ${'%'+ userEmail + '%'}`);
+			userEmail = userEmail.trim();
+			conditions.push(/^[^\s@]+@[^\s@]+$/.test(userEmail)
+				? sql`${user.email} COLLATE NOCASE = ${userEmail}`
+				: sql`${user.email} COLLATE NOCASE LIKE ${'%'+ userEmail + '%'}`);
 		}
 
 		if (accountEmail) {
+			accountEmail = accountEmail.trim();
+			const exactAddress = /^[^\s@]+@[^\s@]+$/.test(accountEmail);
+			const addressMatch = exactAddress ? accountEmail : `%${accountEmail}%`;
+			const addressOperator = exactAddress ? sql`=` : sql`LIKE`;
 			conditions.push(
-				or(
-					sql`${email.toEmail} COLLATE NOCASE LIKE ${'%'+ accountEmail + '%'}`,
-					sql`${email.sendEmail} COLLATE NOCASE LIKE ${'%'+ accountEmail + '%'}`,
-				)
+				sql`${email.emailId} IN (
+					SELECT email_id FROM email INDEXED BY idx_email_to_nocase_type WHERE to_email COLLATE NOCASE ${addressOperator} ${addressMatch}
+					UNION
+					SELECT email_id FROM email INDEXED BY idx_email_from_nocase_type WHERE send_email COLLATE NOCASE ${addressOperator} ${addressMatch}
+				)`
 			)
 		}
 
@@ -846,10 +854,9 @@ const emailService = {
 			.leftJoin(user, eq(email.userId, user.userId))
 			.where(and(...conditions));
 
-		const queryCount = orm(c).select({ total: count() })
-			.from(email)
-			.leftJoin(user, eq(email.userId, user.userId))
-			.where(and(...countConditions));
+		let queryCount = orm(c).select({ total: count() }).from(email);
+		if (userEmail) queryCount = queryCount.leftJoin(user, eq(email.userId, user.userId));
+		queryCount = queryCount.where(and(...countConditions));
 
 		if (timeSort) {
 			query.orderBy(asc(email.emailId));
@@ -859,7 +866,7 @@ const emailService = {
 
 		const listQuery = query.limit(size).all();
 		const totalQuery = queryCount.get();
-		const latestEmailQuery = orm(c).select().from(email)
+		const latestEmailQuery = orm(c).select({ emailId: email.emailId, accountId: email.accountId, userId: email.userId }).from(email)
 			.where(and(
 				eq(email.type, emailConst.type.RECEIVE),
 				ne(email.status, emailConst.status.SAVING)

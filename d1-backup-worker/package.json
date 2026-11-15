@@ -1,0 +1,8 @@
+{
+  "name": "happyx2-d1-backup",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "wrangler": "^4.123.0"
+  }
+}
