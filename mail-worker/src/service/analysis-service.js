@@ -1,8 +1,4 @@
 import analysisDao from '../dao/analysis-dao';
-import orm from '../entity/orm';
-import email from '../entity/email';
-import { desc, count, eq, and, ne, isNotNull } from 'drizzle-orm';
-import { emailConst } from '../const/entity-const';
 import kvConst from '../const/kv-const';
 import dayjs from 'dayjs';
 import { toUtc } from '../utils/date-uitil';
@@ -68,13 +64,9 @@ const analysisService = {
 			analysisDao.numberCount(c),
 			analysisDao.storageUsage(c),
 
-			orm(c)
-				.select({ name: email.name, total: count() })
-				.from(email)
-				.where(and(eq(email.type, emailConst.type.RECEIVE), isNotNull(email.name),ne(email.name,'noreply'), ne(email.name,'')))
-				.groupBy(email.name)
-				.orderBy(desc(count()))
-				.limit(6),
+			c.env.db.prepare(`SELECT name,count(*) AS total FROM email_metadata
+				WHERE type=0 AND name IS NOT NULL AND name NOT IN ('noreply','')
+				GROUP BY name ORDER BY count(*) DESC LIMIT 6`).all().then(row=>row.results),
 
 
 			analysisDao.userDayCount(c, diffHours),

@@ -3,14 +3,15 @@ import emailService from '../service/email-service';
 import result from '../model/result';
 import userContext from '../security/user-context';
 import attService from '../service/att-service';
+import { retryD1Read } from '../utils/d1-retry';
 
 app.get('/email/list', async (c) => {
-	const data = await emailService.list(c, c.req.query(), userContext.getUserId(c));
+	const data = await retryD1Read(() => emailService.list(c, c.req.query(), userContext.getUserId(c)));
 	return c.json(result.ok(data));
 });
 
 app.get('/email/latest', async (c) => {
-	const list = await emailService.latest(c, c.req.query(), userContext.getUserId(c));
+	const list = await retryD1Read(() => emailService.latest(c, c.req.query(), userContext.getUserId(c)));
 	return c.json(result.ok(list));
 });
 

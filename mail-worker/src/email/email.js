@@ -11,10 +11,17 @@ import roleService from '../service/role-service';
 import userService from '../service/user-service';
 import telegramService from '../service/telegram-service';
 import aiService from '../service/ai-service';
+import { deliveryState, receiveOnce, finishDelivery } from './delivery-store';
 
-export async function email(message, env, ctx) {
+export async function processEmail(message, env, ctx, deliveryKey) {
+	const reject = async reason => {
+		if (deliveryKey) await env.db.prepare(`INSERT INTO email_delivery(delivery_key,state) VALUES (?,'rejected')
+			ON CONFLICT(delivery_key) DO UPDATE SET state='rejected' WHERE state='pending'`).bind(deliveryKey).run();
+		message.setReject(reason);
+	};
 
 	try {
+		if (deliveryKey && ['delivered','rejected'].includes((await deliveryState(env,deliveryKey))?.state)) return;
 
 		const {
 			receive,
@@ -34,33 +41,27 @@ export async function email(message, env, ctx) {
 		} = await settingService.query({ env });
 
 		if (receive === settingConst.receive.CLOSE) {
-			message.setReject('Service suspended');
+			await reject('Service suspended');
 			return;
 		}
 
-		const reader = message.raw.getReader();
-		let content = '';
-
-		while (true) {
-			const { done, value } = await reader.read();
-			if (done) break;
-			content += new TextDecoder().decode(value);
-		}
-
-		const email = await PostalMime.parse(content);
+		// Parse bytes directly: decoding each stream chunk separately corrupts UTF-8
+		// characters split between chunks (and needlessly copies the entire message).
+		const email = await PostalMime.parse(await new Response(message.raw).arrayBuffer());
+		if (!email.from?.address) email.from={address:message.from,name:''};
 
 
 		const blockFlag = checkBlock(blackSubject, blackContent, blackFrom, email);
 
 		if (blockFlag) {
-			message.setReject('Message rejected');
+			await reject('Message rejected');
 			return;
 		}
 
 		const account = await accountService.selectByEmailIncludeDel({ env: env }, message.to);
 
 		if (!account && noRecipient === settingConst.noRecipient.CLOSE) {
-			message.setReject('Recipient not found');
+			await reject('Recipient not found');
 			return;
 		}
 
@@ -75,12 +76,12 @@ export async function email(message, env, ctx) {
 			let { banEmail, availDomain } = await roleService.selectByUserId({ env: env }, account.userId);
 
 			if (!roleService.hasAvailDomainPerm(availDomain, message.to)) {
-				message.setReject('The recipient is not authorized to use this domain.');
+				await reject('The recipient is not authorized to use this domain.');
 				return;
 			}
 
 			if(roleService.isBanEmail(banEmail, email.from.address)) {
-				message.setReject('The recipient is disabled from receiving emails.');
+				await reject('The recipient is disabled from receiving emails.');
 				return;
 			}
 
@@ -95,6 +96,7 @@ export async function email(message, env, ctx) {
 		const code = await aiService.extractCode({ env }, email, { aiCode, aiCodeFilter });
 
 		const params = {
+			createTime:(message.receivedAt ? new Date(message.receivedAt) : new Date()).toISOString().replace('T',' ').slice(0,19),
 			toEmail: message.to,
 			toName: toName,
 			sendEmail: email.from.address,
@@ -128,7 +130,15 @@ export async function email(message, env, ctx) {
 			}
 		}
 
-		let emailRow = await emailService.receive({ env }, params, cidAttachments, r2Domain);
+		let emailRow;
+		if (deliveryKey) {
+			params.content=emailService.imgReplace(params.content,cidAttachments,r2Domain);
+			const receipt=await receiveOnce({env},deliveryKey,params);
+			if (receipt.state!=='pending') return;
+			emailRow={...params,emailId:receipt.emailId};
+		} else {
+			emailRow=await emailService.receive({env},params,cidAttachments,r2Domain);
+		}
 
 		attachments.forEach(attachment => {
 			attachment.emailId = emailRow.emailId;
@@ -136,15 +146,15 @@ export async function email(message, env, ctx) {
 			attachment.accountId = emailRow.accountId;
 		});
 
-		try {
-			if (attachments.length > 0) {
-				await attService.addAtt({ env }, attachments);
-			}
-		} catch (e) {
-			console.error(e);
-		}
+		if (attachments.length > 0) await attService.addReceivedAtt({env},attachments);
 
-		emailRow = await emailService.completeReceive({ env }, account ? emailConst.status.RECEIVE : emailConst.status.NOONE, emailRow.emailId);
+		const status=account ? emailConst.status.RECEIVE : emailConst.status.NOONE;
+		if (deliveryKey) {
+			if (!await finishDelivery(env,deliveryKey,emailRow.emailId,status)) return;
+			emailRow={...emailRow,status,isDel:isDel.NORMAL};
+		} else {
+			emailRow=await emailService.completeReceive({env},status,emailRow.emailId);
+		}
 
 
 		if (ruleType === settingConst.ruleType.RULE) {
@@ -159,7 +169,8 @@ export async function email(message, env, ctx) {
 
 		//转发到TG
 		if (tgBotStatus === settingConst.tgBotStatus.OPEN && tgChatId) {
-			await telegramService.sendEmailToBot({ env }, emailRow)
+			try { await telegramService.sendEmailToBot({env},emailRow); }
+			catch { console.error('mail_telegram_notification_failed'); }
 		}
 
 		//转发到其他邮箱
@@ -172,7 +183,7 @@ export async function email(message, env, ctx) {
 				try {
 					await message.forward(email);
 				} catch (e) {
-					console.error(`转发邮箱 ${email} 失败：`, e);
+					console.error('mail_forward_failed');
 				}
 
 			}));
@@ -180,7 +191,7 @@ export async function email(message, env, ctx) {
 		}
 
 	} catch (e) {
-		console.error('邮件接收异常: ', e);
+		console.error('mail_processing_failed');
 		throw e
 	}
 }

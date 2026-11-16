@@ -6,6 +6,7 @@ import user from '../entity/user';
 import role from '../entity/role';
 import { permConst } from '../const/entity-const';
 import { t } from '../i18n/i18n'
+import { retryD1Read } from '../utils/d1-retry';
 
 const permService = {
 	async tree(c) {
@@ -24,12 +25,12 @@ const permService = {
 	},
 
 	async userPermKeys(c, userId) {
-		const userPerms = await orm(c).select({permKey: perm.permKey}).from(user)
+		const userPerms = await retryD1Read(() => orm(c).select({permKey: perm.permKey}).from(user)
 			.leftJoin(role, eq(role.roleId,user.type))
 			.rightJoin(rolePerm, eq(rolePerm.roleId,role.roleId))
 			.leftJoin(perm, eq(rolePerm.permId,perm.permId))
 			.where(and(eq(user.userId,userId),eq(perm.type,permConst.type.BUTTON)))
-			.all();
+			.all());
 		return userPerms.map(perm => perm.permKey);
 	}
 }

@@ -89,20 +89,14 @@ const emailService = {
 
 		const listQuery = query.limit(size).all();
 
-		const totalQuery = orm(c).select({ total: count() }).from(email)
-			.leftJoin(
-				account,
-				eq(account.accountId, email.accountId)
-			)
-			.where(
-				and(
-					allReceive ? eq(1,1) : eq(email.accountId, accountId),
-					eq(email.userId, userId),
-					eq(email.type, type),
-					eq(email.isDel, isDel.NORMAL),
-					eq(account.isDel, isDel.NORMAL)
-				)
-		).get();
+		// Count from small metadata only. The former index omitted account_id and read
+		// every matching body row just to perform this join (~4 GB in production).
+		const totalQuery = c.env.db.prepare(`SELECT count(*) AS total
+			FROM email_metadata e INDEXED BY idx_email_meta_owner
+			JOIN account a ON a.account_id=e.account_id
+			WHERE e.user_id=? AND e.type=? AND e.is_del=0 AND a.is_del=0
+			${allReceive ? '' : 'AND e.account_id=?'}`)
+			.bind(...(allReceive ? [userId, Number(type)] : [userId, Number(type), accountId])).first();
 
 		const latestEmailQuery = orm(c).select({ emailId: email.emailId, accountId: email.accountId, userId: email.userId }).from(email).where(
 			and(
@@ -753,20 +747,12 @@ const emailService = {
 	},
 
 	async selectUserEmailCountList(c, userIds, type, del = isDel.NORMAL) {
-		const result = await orm(c)
-			.select({
-				userId: email.userId,
-				count: count(email.emailId)
-			})
-			.from(email)
-			.where(and(
-				inArray(email.userId, userIds),
-				eq(email.type, type),
-				eq(email.isDel, del),
-				ne(email.status, emailConst.status.SAVING),
-			))
-			.groupBy(email.userId);
-		return result;
+		if (!userIds.length) return [];
+		const {results}=await c.env.db.prepare(`SELECT user_id AS userId,count(*) AS count
+			FROM email_metadata WHERE user_id IN (${userIds.map(()=>'?').join(',')})
+			AND type=? AND is_del=? AND status<>? GROUP BY user_id`)
+			.bind(...userIds,type,del,emailConst.status.SAVING).all();
+		return results;
 	},
 
 	async allList(c, params) {
@@ -812,9 +798,10 @@ const emailService = {
 
 		if (userEmail) {
 			userEmail = userEmail.trim();
-			conditions.push(/^[^\s@]+@[^\s@]+$/.test(userEmail)
+			const userMatch = /^[^\s@]+@[^\s@]+$/.test(userEmail)
 				? sql`${user.email} COLLATE NOCASE = ${userEmail}`
-				: sql`${user.email} COLLATE NOCASE LIKE ${'%'+ userEmail + '%'}`);
+				: sql`${user.email} COLLATE NOCASE LIKE ${'%'+ userEmail + '%'}`;
+			conditions.push(sql`${email.userId} IN (SELECT user_id FROM user WHERE ${userMatch})`);
 		}
 
 		if (accountEmail) {
@@ -832,11 +819,11 @@ const emailService = {
 		}
 
 		if (name) {
-			conditions.push(sql`${email.name} COLLATE NOCASE LIKE ${'%'+ name + '%'}`);
+			conditions.push(sql`${email.emailId} IN (SELECT email_id FROM email_metadata INDEXED BY idx_email_meta_name WHERE name COLLATE NOCASE LIKE ${'%'+ name + '%'})`);
 		}
 
 		if (subject) {
-			conditions.push(sql`${email.subject} COLLATE NOCASE LIKE ${'%'+ subject + '%'}`);
+			conditions.push(sql`${email.emailId} IN (SELECT email_id FROM email_metadata INDEXED BY idx_email_meta_subject WHERE subject COLLATE NOCASE LIKE ${'%'+ subject + '%'})`);
 		}
 
 		conditions.push(ne(email.status, emailConst.status.SAVING));
@@ -854,8 +841,7 @@ const emailService = {
 			.leftJoin(user, eq(email.userId, user.userId))
 			.where(and(...conditions));
 
-		let queryCount = orm(c).select({ total: count() }).from(email);
-		if (userEmail) queryCount = queryCount.leftJoin(user, eq(email.userId, user.userId));
+		let queryCount = orm(c).select({ total: count().as('total') }).from(email);
 		queryCount = queryCount.where(and(...countConditions));
 
 		if (timeSort) {
@@ -865,7 +851,8 @@ const emailService = {
 		}
 
 		const listQuery = query.limit(size).all();
-		const totalQuery = queryCount.get();
+		const countSql=queryCount.toSQL();
+		const totalQuery=c.env.db.prepare(countSql.sql.replaceAll('"email".','"email_metadata".').replace('from "email"','from "email_metadata"')).bind(...countSql.params).first();
 		const latestEmailQuery = orm(c).select({ emailId: email.emailId, accountId: email.accountId, userId: email.userId }).from(email)
 			.where(and(
 				eq(email.type, emailConst.type.RECEIVE),
@@ -935,8 +922,12 @@ const emailService = {
 	},
 
 	async completeReceiveAll(c) {
-		await c.env.db.prepare(`UPDATE email as e SET status = ${emailConst.status.RECEIVE} WHERE status = ${emailConst.status.SAVING} AND EXISTS (SELECT 1 FROM account WHERE account_id = e.account_id)`).run();
-		await c.env.db.prepare(`UPDATE email as e SET status = ${emailConst.status.NOONE} WHERE status = ${emailConst.status.SAVING} AND NOT EXISTS (SELECT 1 FROM account WHERE account_id = e.account_id)`).run();
+		// Queue-owned deliveries must finish attachments before becoming visible.
+		await c.env.db.prepare(`UPDATE email AS e SET status=CASE
+			WHEN EXISTS (SELECT 1 FROM account WHERE account_id=e.account_id) THEN ${emailConst.status.RECEIVE}
+			ELSE ${emailConst.status.NOONE} END
+			WHERE email_id IN (SELECT email_id FROM email_metadata WHERE status=${emailConst.status.SAVING})
+			AND NOT EXISTS (SELECT 1 FROM email_delivery d WHERE d.email_id=e.email_id)`).run();
 	},
 
 	async batchDelete(c, params) {

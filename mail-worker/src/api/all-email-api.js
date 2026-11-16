@@ -1,9 +1,10 @@
 import app from '../hono/hono';
 import emailService from '../service/email-service';
 import result from '../model/result';
+import { retryD1Read } from '../utils/d1-retry';
 
 app.get('/allEmail/list', async (c) => {
-	const data = await emailService.allList(c, c.req.query());
+	const data = await retryD1Read(() => emailService.allList(c, c.req.query()));
 	return c.json(result.ok(data));
 })
 
@@ -18,6 +19,6 @@ app.delete('/allEmail/batchDelete', async (c) => {
 })
 
 app.get('/allEmail/latest', async (c) => {
-	const list = await emailService.allEmailLatest(c, c.req.query());
+	const list = await retryD1Read(() => emailService.allEmailLatest(c, c.req.query()));
 	return c.json(result.ok(list));
 })
