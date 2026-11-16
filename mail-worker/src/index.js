@@ -1,5 +1,5 @@
 import app from './hono/webs';
-import { email } from './email/email';
+import { bufferedEmail, consumeMail, recoverMail } from './email/mail-buffer';
 import userService from './service/user-service';
 import verifyRecordService from './service/verify-record-service';
 import emailService from './service/email-service';
@@ -23,8 +23,13 @@ export default {
 
 		return env.assets.fetch(req);
 	},
-	email: email,
+	email: bufferedEmail,
+	queue: consumeMail,
 	async scheduled(c, env, ctx) {
+		if (c.cron === '*/5 * * * *') {
+			await recoverMail(env);
+			return;
+		}
 		if (c.cron === '*/30 * * * *') {
 			await analysisService.refreshEchartsCache({ env })
 			return;

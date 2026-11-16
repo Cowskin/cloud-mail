@@ -26,7 +26,7 @@ const analysisDao = {
                         SUM(CASE WHEN type = 0 AND is_del = 0 THEN 1 ELSE 0 END) AS normalReceiveTotal,
                         SUM(CASE WHEN type = 1 AND is_del = 0 THEN 1 ELSE 0 END) AS normalSendTotal
                     FROM
-                        email where status != ${emailConst.status.SAVING}
+                        email_metadata where status != ${emailConst.status.SAVING}
                 ) e
             CROSS JOIN (
                 SELECT
@@ -51,12 +51,8 @@ const analysisDao = {
 	async storageUsage(c) {
 		const query = await c.env.db.prepare(`
 			SELECT
-				(SELECT COUNT(*) FROM email) AS emailTotal,
-				(SELECT COALESCE(SUM(
-					LENGTH(COALESCE(subject, '')) + LENGTH(COALESCE(text, '')) +
-					LENGTH(COALESCE(content, '')) + LENGTH(COALESCE(message, '')) +
-					LENGTH(COALESCE(cc, '')) + LENGTH(COALESCE(bcc, ''))
-				), 0) FROM email) AS emailContentBytes,
+				(SELECT COUNT(*) FROM email_metadata) AS emailTotal,
+				(SELECT COALESCE(SUM(content_bytes),0) FROM email_metadata) AS emailContentBytes,
 				(SELECT COUNT(*) FROM attachments) AS attachmentTotal,
 				(SELECT COALESCE(SUM(size), 0) FROM (
 					SELECT MAX(COALESCE(size, 0)) AS size FROM attachments GROUP BY key
@@ -69,16 +65,8 @@ const analysisDao = {
 					SELECT MAX(COALESCE(size, 0)) AS size FROM attachments
 					WHERE create_time >= datetime('now', '-30 days') GROUP BY key
 				)) AS attachmentBytes30d,
-				(SELECT COALESCE(SUM(
-					LENGTH(COALESCE(subject, '')) + LENGTH(COALESCE(text, '')) +
-					LENGTH(COALESCE(content, '')) + LENGTH(COALESCE(message, '')) +
-					LENGTH(COALESCE(cc, '')) + LENGTH(COALESCE(bcc, ''))
-				), 0) FROM email WHERE create_time >= datetime('now', '-7 days')) AS emailBytes7d,
-				(SELECT COALESCE(SUM(
-					LENGTH(COALESCE(subject, '')) + LENGTH(COALESCE(text, '')) +
-					LENGTH(COALESCE(content, '')) + LENGTH(COALESCE(message, '')) +
-					LENGTH(COALESCE(cc, '')) + LENGTH(COALESCE(bcc, ''))
-				), 0) FROM email WHERE create_time >= datetime('now', '-30 days')) AS emailBytes30d
+				(SELECT COALESCE(SUM(content_bytes),0) FROM email_metadata WHERE create_time >= datetime('now', '-7 days')) AS emailBytes7d,
+				(SELECT COALESCE(SUM(content_bytes),0) FROM email_metadata WHERE create_time >= datetime('now', '-30 days')) AS emailBytes30d
 		`).all();
 
 		return {
@@ -110,7 +98,7 @@ const analysisDao = {
                 DATE(create_time,'+${diffHours} hours') AS date,
                 COUNT(*) AS total
             FROM
-                email
+                email_metadata
             WHERE
 			  				DATE(create_time,'+${diffHours} hours') BETWEEN DATE('now', '-15 days', '+${diffHours} hours') AND DATE('now','-1 day','+${diffHours} hours')
                 AND type = 0
@@ -128,7 +116,7 @@ const analysisDao = {
                 DATE(create_time,'+${diffHours} hours') AS date,
                 COUNT(*) AS total
             FROM
-                email
+                email_metadata
             WHERE
 			  				DATE(create_time,'+${diffHours} hours') BETWEEN DATE('now', '-15 days', '+${diffHours} hours') AND DATE('now','-1 day','+${diffHours} hours')
                 AND type = 1

@@ -11,6 +11,28 @@ import domainUtils from '../utils/domain-uitls';
 import settingService from "./setting-service";
 
 const attService = {
+	async addReceivedAtt(c, attachments) {
+		// Object keys are deterministic. Metadata inserts are conditional so replay
+		// after a partial upload cannot duplicate records. Keep the original number
+		// of identical MIME parts, including attachments sharing a name and key.
+		const occurrences=new Map();
+		const uploaded=new Set();
+		for (const item of attachments) {
+			if (!uploaded.has(item.key)) await r2Service.putObj(c,item.key,item.content,{
+				contentType:item.mimeType,
+				contentDisposition:`${item.contentId?'inline':'attachment'};filename=${item.filename}`
+			});
+			uploaded.add(item.key);
+			const tuple=JSON.stringify([item.key,item.contentId??'',item.filename??'']);
+			const occurrence=(occurrences.get(tuple)||0)+1;
+			occurrences.set(tuple,occurrence);
+			await c.env.db.prepare(`INSERT INTO attachments(user_id,email_id,account_id,key,filename,mime_type,size,content_id)
+				SELECT ?,?,?,?,?,?,?,? WHERE (
+				 SELECT count(*) FROM attachments WHERE email_id=? AND key=? AND COALESCE(content_id,'')=? AND COALESCE(filename,'')=?
+				) < ?`).bind(item.userId,item.emailId,item.accountId,item.key,item.filename??null,item.mimeType??null,
+				item.size,item.contentId??null,item.emailId,item.key,item.contentId??'',item.filename??'',occurrence).run();
+		}
+	},
 
 	async addAtt(c, attachments) {
 

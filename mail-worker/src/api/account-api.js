@@ -2,9 +2,10 @@ import app from '../hono/hono';
 import accountService from '../service/account-service';
 import result from '../model/result';
 import userContext from '../security/user-context';
+import { retryD1Read } from '../utils/d1-retry';
 
 app.get('/account/list', async (c) => {
-	const list = await accountService.list(c, c.req.query(), userContext.getUserId(c));
+	const list = await retryD1Read(() => accountService.list(c, c.req.query(), userContext.getUserId(c)));
 	return c.json(result.ok(list));
 });
 

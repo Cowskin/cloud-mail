@@ -15,6 +15,24 @@ database_id = "c72f3087-b46f-429b-99f2-7c0e177c1699"
 binding = "kv"			#kv绑定名默认不可修改
 id = "637eefe933154269b4a8da98ac20e6de"
 
+# Temporary durable inbox only; final bodies and existing mail remain in D1.
+[[r2_buckets]]
+binding = "MAIL_SPOOL"
+bucket_name = "cloud-mail-incoming"
+
+[[queues.producers]]
+binding = "MAIL_QUEUE"
+queue = "cloud-mail-incoming"
+
+[[queues.consumers]]
+queue = "cloud-mail-incoming"
+max_batch_size = 1
+max_batch_timeout = 1
+max_retries = 100
+max_concurrency = 1
+retry_delay = 60
+dead_letter_queue = "cloud-mail-incoming-failed"
+
 #[[r2_buckets]]
 #binding = "r2"			#r2对象存储绑定名默认不可修改
 #bucket_name = ""		#r2对象存储桶的名字
@@ -32,7 +50,7 @@ not_found_handling = "single-page-application"
 run_worker_first = true
 
 [triggers]
-crons = ["0 16 * * *"]	#每天晚上12点执行每日任务,刷新分析缓存
+crons = ["0 16 * * *", "*/5 * * * *"] # Daily maintenance + durable mail recovery
 
 
 [vars]
