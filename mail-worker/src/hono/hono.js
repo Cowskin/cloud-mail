@@ -7,6 +7,11 @@ import { cors } from 'hono/cors';
 app.use('*', cors());
 
 app.onError((err, c) => {
+	const sensitive = /^\/(?:email|allEmail|star|public\/emailList|telegram|setting\/cardProtection)(?:\/|$)/.test(c.req.path);
+	if (sensitive && err.name !== 'BizError') {
+		console.error(JSON.stringify({name:err.name,path:c.req.path.split('/').slice(0,3).join('/'),method:c.req.method}));
+		return c.json(result.fail('请求处理失败，请稍后重试 / Request failed; please retry', 503));
+	}
 	if (err.name === 'BizError') {
 		console.log(err.message);
 	} else {

@@ -3,6 +3,7 @@ import NProgress from 'nprogress';
 import {useUiStore} from "@/store/ui.js";
 import {useSettingStore} from "@/store/setting.js";
 import {cvtR2Url} from "@/utils/convert.js";
+import {useEmailStore} from '@/store/email.js';
 
 const routes = [
     {
@@ -87,6 +88,11 @@ let timer
 let first = true
 
 router.beforeEach((to, from, next) => {
+
+    if (to.name === 'content' && !useEmailStore().contentData.email) {
+        next('/inbox');
+        return;
+    }
 
     if (timer) {
         clearTimeout(timer)

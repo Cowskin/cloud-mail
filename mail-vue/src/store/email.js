@@ -16,7 +16,4 @@ export const useEmailStore = defineStore('email', {
         },
         sendScroll: null,
     }),
-    persist: {
-        pick: ['contentData'],
-    },
 })

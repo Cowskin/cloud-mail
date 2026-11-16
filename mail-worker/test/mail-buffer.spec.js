@@ -10,10 +10,13 @@ import {bufferedEmail,consumeMail,deliverBuffered,recoverMail} from '../src/emai
 import {receiveOnce,finishDelivery} from '../src/email/delivery-store';
 import {isTransientD1,retryD1Read} from '../src/utils/d1-retry';
 import emailService from '../src/service/email-service';
+import protectionMigration from '../migrations/20261116_card_protection.sql?raw';
+import cardProtection from '../src/service/card-protection-service';
 
 const raw=new TextEncoder().encode('From: sender@example.test\r\nTo: box@example.test\r\nSubject: Recovery 中文\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nRetained recovery message 中文');
 const setting={receive:0,noRecipient:1,emailPrefixFilter:'',aiCode:1,tgBotStatus:1,forwardStatus:1};
 beforeAll(async()=>{
+  for (const statement of protectionMigration.replace(/^--.*$/gm, '').split(';').filter(s => s.trim())) await env.db.prepare(statement).run();
   for (const table of [email,account,user,att]) {
     const config=getTableConfig(table);
     const columns=config.columns.map(c=>`"${c.name}" ${c.getSQLType()} ${c.primary?'PRIMARY KEY':''} DEFAULT ${c.getSQLType()==='integer'?'0':"''"}`);
@@ -34,6 +37,28 @@ const key='pending/2026-11-16/12345678-1234-1234-1234-123456789abc.eml';
 const store=()=>env.MAIL_SPOOL.put(key,raw,{customMetadata:{from:'sender@example.test',to:'box@example.test'}});
 
 describe('durable incoming mail',()=>{
+  it('stores original cards, protects AI and Telegram output, and pauses raw forwarding while enabled',async()=>{
+    const password='CardTest-2026!';
+    await cardProtection.update({env},{action:'enable',version:1,newPassword:password,confirmPassword:password});
+    await env.kv.put('setting:',JSON.stringify({...setting,aiCode:0,tgBotStatus:0,tgChatId:'1',tgBotToken:'synthetic-test-only',tgMsgText:'show',forwardStatus:0,forwardEmail:'forward@example.net'}));
+    const tg=vi.spyOn(globalThis,'fetch').mockResolvedValue(new Response('{}',{status:200}));
+    const ai={run:vi.fn().mockResolvedValue({response:'{"code":""}'})};
+    const card='XDEM12345678ABCD';
+    const incoming={...message(),raw:new Response(`From: sender@example.test\r\nTo: box@example.test\r\nSubject: Gift ${card}\r\nContent-Type: text/plain\r\n\r\n${card}`).body};
+    await bufferedEmail(incoming,live({ai,MAIL_QUEUE:queue()}),context);
+    expect(ai.run).toHaveBeenCalledOnce();
+    expect(JSON.stringify(ai.run.mock.calls)).not.toContain(card);
+    expect(JSON.stringify(ai.run.mock.calls)).toContain('JG_XDEM_');
+    expect(tg).toHaveBeenCalledOnce();
+    expect(JSON.stringify(tg.mock.calls)).not.toContain(card);
+    expect(JSON.stringify(tg.mock.calls)).toContain('JG_XDEM_');
+    expect(incoming.forward).not.toHaveBeenCalled();
+    expect(await env.db.prepare('SELECT text FROM email ORDER BY email_id DESC LIMIT 1').first('text')).toContain(card);
+    await cardProtection.update({env},{action:'disable',version:2,currentPassword:password});
+    const next={...message(),raw:new Response('From: sender@example.test\r\nTo: box@example.test\r\nSubject: Forward restored\r\n\r\nSynthetic body').body};
+    await bufferedEmail(next,live({ai,MAIL_QUEUE:queue()}),context);
+    expect(next.forward).toHaveBeenCalledWith('forward@example.net');
+  });
   it('persists raw mail before D1 access; overload is retained for automatic recovery',async()=>{
     const transport=queue();
     const offline=live({db:{prepare(){throw new Error('D1_ERROR: D1 DB is overloaded');}},MAIL_QUEUE:transport});

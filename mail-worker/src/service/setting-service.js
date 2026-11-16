@@ -9,6 +9,7 @@ import BizError from '../error/biz-error';
 import {t} from '../i18n/i18n'
 import verifyRecordService from './verify-record-service';
 import userContext from '../security/user-context';
+import cardProtection from './card-protection-service';
 
 const settingService = {
 
@@ -120,6 +121,9 @@ const settingService = {
 		settingRow.addVerifyOpen = addVerifyOpen
 
 		settingRow.storageType = await r2Service.storageType(c);
+		const protection = await cardProtection.policy(c);
+		settingRow.cardProtectionEnabled = !!protection.enabled;
+		settingRow.cardProtectionVersion = protection.version;
 
 		return settingRow;
 	},
@@ -201,8 +205,12 @@ const settingService = {
 
 		const settingRow = await this.get(c, true);
 		const token = await userContext.getToken(c);
+		const protection = await cardProtection.policy(c);
+		c.header?.('Cache-Control', 'no-store, private');
 
 		return {
+			cardProtectionEnabled: !!protection.enabled,
+			cardProtectionVersion: protection.version,
 			register: settingRow.register,
 			title: settingRow.title,
 			manyEmail: settingRow.manyEmail,

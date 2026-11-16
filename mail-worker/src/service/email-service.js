@@ -22,6 +22,8 @@ import domainUtils from '../utils/domain-uitls';
 import account from "../entity/account";
 import { att } from '../entity/att';
 import telegramService from './telegram-service';
+import cardProtection from './card-protection-service';
+import { protectMail } from '../utils/protect-mail';
 
 const emailService = {
 
@@ -145,6 +147,10 @@ const emailService = {
 
 	//邮件发送
 	async send(c, params, userId) {
+		if ((await cardProtection.policy(c)).enabled) {
+			if (params.attachments?.length) throw new BizError('保护开启时不能发送附件 / Attachments are unavailable while protection is enabled', 400);
+			params = await protectMail(c, params);
+		}
 
 		let {
 			accountId, //发送账号id

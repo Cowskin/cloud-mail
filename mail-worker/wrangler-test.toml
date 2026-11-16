@@ -22,5 +22,6 @@ run_worker_first = true
 domain = ["example.test"]
 admin = "admin@example.test"
 jwt_secret = "LOCAL-TEST-ONLY-NOT-A-PRODUCTION-SECRET"
+CARD_PROTECTION_SECRET = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
 analysis_cache = false
 orm_log = false

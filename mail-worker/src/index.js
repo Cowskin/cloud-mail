@@ -6,6 +6,7 @@ import emailService from './service/email-service';
 import kvObjService from './service/kv-obj-service';
 import oauthService from "./service/oauth-service";
 import analysisService from './service/analysis-service';
+import cardProtection from './service/card-protection-service';
 export default {
 	 async fetch(req, env, ctx) {
 
@@ -18,6 +19,11 @@ export default {
 		}
 
 		 if (['/static/','/attachments/'].some(p => url.pathname.startsWith(p))) {
+			 if (url.pathname.startsWith('/attachments/')) {
+				 try {
+					 if ((await cardProtection.read({env})).enabled) return new Response('Attachments unavailable while protection is enabled', {status:403,headers:{'Cache-Control':'no-store'}});
+				 } catch { return new Response('Protection unavailable', {status:503,headers:{'Cache-Control':'no-store'}}); }
+			 }
 			 return await kvObjService.toObjResp( { env }, url.pathname.substring(1));
 		 }
 

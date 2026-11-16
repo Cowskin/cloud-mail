@@ -12,6 +12,8 @@ import userService from '../service/user-service';
 import telegramService from '../service/telegram-service';
 import aiService from '../service/ai-service';
 import { deliveryState, receiveOnce, finishDelivery } from './delivery-store';
+import cardProtection from '../service/card-protection-service';
+import { protectMail } from '../utils/protect-mail';
 
 export async function processEmail(message, env, ctx, deliveryKey) {
 	const reject = async reason => {
@@ -93,7 +95,11 @@ export async function processEmail(message, env, ctx, deliveryKey) {
 		}
 
 		const toName = email.to.find(item => item.address === message.to)?.name || '';
-		const code = await aiService.extractCode({ env }, email, { aiCode, aiCodeFilter });
+		const protection = await cardProtection.read({ env });
+		const protectionContext = { env, get: key => key === 'cardPolicy' ? Promise.resolve(protection) : null };
+		// The AI must not receive raw cards either. Stored originals are unchanged.
+		const aiEmail = protection.enabled ? await protectMail(protectionContext, email) : email;
+		const code = await aiService.extractCode({ env }, aiEmail, { aiCode, aiCodeFilter });
 
 		const params = {
 			createTime:(message.receivedAt ? new Date(message.receivedAt) : new Date()).toISOString().replace('T',' ').slice(0,19),
@@ -174,7 +180,7 @@ export async function processEmail(message, env, ctx, deliveryKey) {
 		}
 
 		//转发到其他邮箱
-		if (forwardStatus === settingConst.forwardStatus.OPEN && forwardEmail) {
+		if (forwardStatus === settingConst.forwardStatus.OPEN && forwardEmail && !(await cardProtection.read({env})).enabled) {
 
 			const emails = forwardEmail.split(',');
 

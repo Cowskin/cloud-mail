@@ -59,11 +59,11 @@ const publicService = {
 		}
 
 		if (sendName) {
-			conditions.push(sql`${email.name} COLLATE NOCASE LIKE ${sendName}`)
+			conditions.push(sql`${email.emailId} IN (SELECT email_id FROM email_metadata INDEXED BY idx_email_meta_name WHERE name COLLATE NOCASE LIKE ${sendName})`)
 		}
 
 		if (subject) {
-			conditions.push(sql`${email.subject} COLLATE NOCASE LIKE ${subject}`)
+			conditions.push(sql`${email.emailId} IN (SELECT email_id FROM email_metadata INDEXED BY idx_email_meta_subject WHERE subject COLLATE NOCASE LIKE ${subject})`)
 		}
 
 		if (content) {

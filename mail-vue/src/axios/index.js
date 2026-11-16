@@ -2,6 +2,7 @@ import axios from "axios";
 import router from "@/router";
 import i18n from "@/i18n/index.js";
 import {useSettingStore} from "@/store/setting.js";
+import { acceptProtectionState } from '@/utils/card-protection.js';
 
 let http = axios.create({
     baseURL: import.meta.env.VITE_BASE_URL
@@ -15,6 +16,15 @@ http.interceptors.request.use(config => {
 })
 
 http.interceptors.response.use((res) => {
+
+        const version = res.headers['x-card-protection-version'];
+        if (version && !acceptProtectionState(version, res.headers['x-card-protection-enabled'] === '1')) {
+            return Promise.reject({ code: 409, message: 'Protection settings changed; please refresh.' });
+        }
+        const configState = res.data?.data;
+        if (configState?.cardProtectionVersion && !acceptProtectionState(configState.cardProtectionVersion, configState.cardProtectionEnabled)) {
+            return Promise.reject({ code: 409, message: 'Protection settings changed; please refresh.' });
+        }
 
         return new Promise((resolve, reject) => {
 

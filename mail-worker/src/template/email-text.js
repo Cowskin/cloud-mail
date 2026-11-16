@@ -1,4 +1,5 @@
 export default function emailTextTemplate(text) {
+	text = String(text || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 	return `<!DOCTYPE html>
 <html lang='en' >
 <head>

@@ -46,7 +46,7 @@ const aiService = {
 
 			return json.code;
 		} catch (e) {
-			console.error('验证码提取失败: ', e);
+			console.error('mail_code_extraction_failed');
 			return '';
 		}
 	},

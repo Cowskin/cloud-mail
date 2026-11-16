@@ -13,6 +13,8 @@ import emailTextTemplate from '../template/email-text';
 import emailHtmlTemplate from '../template/email-html';
 import verifyUtils from '../utils/verify-utils';
 import domainUtils from "../utils/domain-uitls";
+import { protectMail, mailProtector } from '../utils/protect-mail';
+import cardProtection from './card-protection-service';
 
 const telegramService = {
 
@@ -26,7 +28,8 @@ const telegramService = {
 			return emailTextTemplate('Access denied')
 		}
 
-		const emailRow = await orm(c).select().from(email).where(eq(email.emailId, result.emailId)).get();
+		const stored = await orm(c).select().from(email).where(eq(email.emailId, result.emailId)).get();
+		const emailRow = stored ? await protectMail(c, stored) : null;
 
 		if (emailRow) {
 
@@ -44,6 +47,8 @@ const telegramService = {
 	},
 
 	async sendEmailToBot(c, email) {
+		const policy = await cardProtection.read(c);
+		email = await (await mailProtector(c, policy)).protect(email);
 
 		const { tgBotToken, tgChatId, customDomain, tgMsgTo, tgMsgFrom, tgMsgText } = await settingService.query(c);
 
@@ -72,6 +77,7 @@ const telegramService = {
 
 		await Promise.all(tgChatIds.map(async chatId => {
 			try {
+				if ((await cardProtection.read(c)).version !== policy.version) throw new Error('Policy changed');
 				const res = await fetch(`https://api.telegram.org/bot${tgBotToken}/sendMessage`, {
 					method: 'POST',
 					headers: {
@@ -87,10 +93,10 @@ const telegramService = {
 					})
 				});
 				if (!res.ok) {
-					console.error(`转发 Telegram 失败 status: ${res.status} response: ${await res.text()}`);
+					console.error(`mail_telegram_failed status: ${res.status}`);
 				}
 			} catch (e) {
-				console.error(`转发 Telegram 失败:`, e.message);
+				console.error('mail_telegram_failed');
 			}
 		}));
 

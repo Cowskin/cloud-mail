@@ -24,7 +24,7 @@
 
 <script setup>
 import emailScroll from "@/components/email-scroll/index.vue"
-import {emailDelete} from "@/request/email.js";
+import {emailDelete, protectDraft} from "@/request/email.js";
 import {starAdd, starCancel} from "@/request/star.js";
 import {defineOptions, ref, watch, toRaw} from "vue";
 import {useUiStore} from "@/store/ui.js";
@@ -41,7 +41,7 @@ const scroll = ref({})
 
 watch(() => draftStore.setDraft, async () => {
 
-  const draft = toRaw(draftStore.setDraft)
+  const draft = await protectDraft({...toRaw(draftStore.setDraft), attachments: []})
   const draftId = draft.draftId
   const attachments = toRaw(draftStore.setDraft.attachments)
 
@@ -71,9 +71,9 @@ watch(() => draftStore.refreshList, async () => {
 
 function getEmailList() {
   return new Promise((resolve, reject) => {
-    db.value.draft.orderBy('createTime').reverse().toArray().then(list => {
-      resolve({list})
-    })
+    db.value.draft.orderBy('createTime').reverse().toArray().then(async list => {
+      resolve(await protectDraft({list}))
+    }).catch(reject)
   })
 }
 

@@ -1,5 +1,6 @@
 import { drizzle } from 'drizzle-orm/d1';
 
 export default function orm(c) {
-	return drizzle(c.env.db,{logger: c.env.orm_log})
+	// SQL parameter logging can include original bodies and protection material.
+	return drizzle(c.env.db,{logger: false})
 }

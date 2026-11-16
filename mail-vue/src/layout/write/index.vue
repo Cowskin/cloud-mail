@@ -97,7 +97,7 @@ import tinyEditor from '@/components/tiny-editor/index.vue'
 import {h, nextTick, onMounted, onUnmounted, reactive, ref, toRaw, computed} from "vue";
 import {Icon} from "@iconify/vue";
 import {useUserStore} from "@/store/user.js";
-import {emailSend} from "@/request/email.js";
+import {emailSend, protectDraft} from "@/request/email.js";
 import {isEmail} from "@/utils/verify-utils.js";
 import {useAccountStore} from "@/store/account.js";
 import {useEmailStore} from "@/store/email.js";
@@ -520,7 +520,8 @@ function open() {
   editor.value.focus()
 }
 
-function openDraft(draft) {
+async function openDraft(draft) {
+  draft = await protectDraft(draft);
   Object.assign(form, {...draft})
   defValue.value = ''
   setTimeout(() => defValue.value = form.content)
@@ -583,7 +584,7 @@ function close() {
     type: 'warning',
     distinguishCancelAndClose: true
   }).then(async () => {
-    const formData = {...toRaw(form)};
+    const formData = await protectDraft({...toRaw(form), attachments: []});
     delete formData.draftId
     delete formData.attachments
     formData.createTime = dayjs().utc().format('YYYY-MM-DD HH:mm:ss');

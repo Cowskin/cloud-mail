@@ -17,6 +17,7 @@
           {{ email.subject }}
         </div>
         <div class="content">
+          <el-alert v-if="email.cardProtected" :closable="false" :title="$t('cardProtectionMailNotice')" type="info" />
           <div class="email-info">
             <div>
               <div class="send"><span class="send-source">{{$t('from')}}</span>

@@ -62,8 +62,8 @@
     <el-dialog v-model="showBathDelete" :title="$t('clearEmail')" width="335"
                @closed="closedClear">
       <div class="clear-email">
-        <el-input v-model="clearParams.sendName" :placeholder="$t('sender')"/>
-        <el-input v-model="clearParams.subject" :placeholder="$t('subject')"/>
+        <el-input v-model="clearParams.sendName" :placeholder="$t('sender')" :disabled="settingStore.settings.cardProtectionEnabled"/>
+        <el-input v-model="clearParams.subject" :placeholder="$t('subject')" :disabled="settingStore.settings.cardProtectionEnabled"/>
         <el-input v-model="clearParams.sendEmail" :placeholder="$t('sendEmailAddress')"/>
         <el-input v-model="clearParams.toEmail" :placeholder="$t('toEmail')"/>
         <el-date-picker popper-class="my-date-picker"

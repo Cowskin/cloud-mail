@@ -2,6 +2,17 @@ import app from '../hono/hono';
 import result from '../model/result';
 import settingService from '../service/setting-service';
 import userContext from "../security/user-context";
+import cardProtection from '../service/card-protection-service';
+
+app.get('/setting/cardProtection/status', async c => {
+	c.header('Cache-Control', 'no-store, private');
+	return c.json(result.ok(await cardProtection.status(c)));
+});
+
+app.put('/setting/cardProtection/update', async c => {
+	c.header('Cache-Control', 'no-store, private');
+	return c.json(result.ok(await cardProtection.update(c, await c.req.json())));
+});
 
 app.put('/setting/set', async (c) => {
 	await settingService.set(c, await c.req.json());

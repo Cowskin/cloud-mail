@@ -74,6 +74,8 @@
             </div>
           </div>
 
+          <CardProtectionSettings />
+
           <!-- Personalization Settings Card -->
           <div class="settings-card">
             <div class="card-title">{{ $t('customization') }}</div>
@@ -804,6 +806,7 @@
 </template>
 
 <script setup>
+import CardProtectionSettings from '@/components/card-protection-settings/index.vue';
 import {computed, defineOptions, nextTick, reactive, ref} from "vue";
 import {deleteBackground, setBackground, setBlackList, settingQuery, settingSet} from "@/request/setting.js";
 import {useSettingStore} from "@/store/setting.js";

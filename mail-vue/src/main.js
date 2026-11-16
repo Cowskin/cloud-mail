@@ -8,6 +8,9 @@ import piniaPersistedState from 'pinia-plugin-persistedstate';
 import 'element-plus/theme-chalk/dark/css-vars.css';
 import 'nprogress/nprogress.css';
 import perm from "@/perm/perm.js";
+// Remove the legacy persisted reading copy before Pinia can hydrate it.
+// Drafts are separate IndexedDB records and are not deleted.
+localStorage.removeItem('email')
 const pinia = createPinia().use(piniaPersistedState)
 import i18n from "@/i18n/index.js";
 const app = createApp(App).use(pinia)

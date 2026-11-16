@@ -1,5 +1,8 @@
 import http from '@/axios/index.js';
 
+export const cardProtectionStatus = () => http.get('/setting/cardProtection/status', { noMsg: true });
+export const cardProtectionUpdate = params => http.put('/setting/cardProtection/update', params, { noMsg: true });
+
 export function settingSet(setting) {
     return http.put('/setting/set', setting)
 }

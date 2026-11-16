@@ -11,7 +11,7 @@ export default defineWorkersConfig({
 					d1Databases: ['db'],
 					kvNamespaces: ['kv'],
 					r2Buckets: ['MAIL_SPOOL'],
-					bindings: { admin: 'admin@example.test', domain: ['example.test'], jwt_secret: 'LOCAL-TEST-ONLY-NOT-A-PRODUCTION-SECRET' },
+					bindings: { admin: 'admin@example.test', domain: ['example.test'], jwt_secret: 'LOCAL-TEST-ONLY-NOT-A-PRODUCTION-SECRET', CARD_PROTECTION_SECRET: 'MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=' },
 				},
 			},
 		},

@@ -16,9 +16,11 @@ import rolePerm from '../src/entity/role-perm';
 import perm from '../src/entity/perm';
 import jwtUtils from '../src/utils/jwt-utils';
 import kvConst from '../src/const/kv-const';
+import protectionMigration from '../migrations/20261116_card_protection.sql?raw';
 
 // Local workerd D1/KV only; real production query code, synthetic records.
 beforeAll(async () => {
+  for (const statement of protectionMigration.replace(/^--.*$/gm, '').split(';').filter(s => s.trim())) await env.db.prepare(statement).run();
   for (const table of [email, user, account, star, att, role, rolePerm, perm]) {
     const config = getTableConfig(table);
     const columns = config.columns.map(c => `"${c.name}" ${c.getSQLType()} ${c.primary ? 'PRIMARY KEY' : ''} DEFAULT ${c.getSQLType() === 'integer' ? '0' : "''"}`);

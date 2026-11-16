@@ -1,5 +1,6 @@
 import app from './hono';
 import '../security/security'
+import '../security/mail-protection'
 
 import '../api/email-api';
 import '../api/user-api';
