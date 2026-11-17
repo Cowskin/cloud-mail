@@ -7,6 +7,7 @@ import kvObjService from './service/kv-obj-service';
 import oauthService from "./service/oauth-service";
 import analysisService from './service/analysis-service';
 import cardProtection from './service/card-protection-service';
+import { safelyRunGiftNotifications } from './service/gift-notification-service';
 export default {
 	 async fetch(req, env, ctx) {
 
@@ -33,7 +34,7 @@ export default {
 	queue: consumeMail,
 	async scheduled(c, env, ctx) {
 		if (c.cron === '*/5 * * * *') {
-			await recoverMail(env);
+			await Promise.all([recoverMail(env),safelyRunGiftNotifications(env)]);
 			return;
 		}
 		if (c.cron === '*/30 * * * *') {

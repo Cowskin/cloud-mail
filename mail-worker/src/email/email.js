@@ -14,6 +14,7 @@ import aiService from '../service/ai-service';
 import { deliveryState, receiveOnce, finishDelivery } from './delivery-store';
 import cardProtection from '../service/card-protection-service';
 import { protectMail } from '../utils/protect-mail';
+import { safelyRunGiftNotifications } from '../service/gift-notification-service';
 
 export async function processEmail(message, env, ctx, deliveryKey) {
 	const reject = async reason => {
@@ -162,6 +163,12 @@ export async function processEmail(message, env, ctx, deliveryKey) {
 			emailRow=await emailService.completeReceive({env},status,emailRow.emailId);
 		}
 
+
+		// The insert trigger has already saved a durable notification reference.
+		// Notification outages must not retry/reject a successfully received email.
+		if (protection.enabled && ['order_acknowledgment@orders.apple.com','just_for_you@giftcards.apple.com'].includes(email.from.address.toLowerCase()) && ctx?.waitUntil) {
+			ctx.waitUntil(safelyRunGiftNotifications(env));
+		}
 
 		if (ruleType === settingConst.ruleType.RULE) {
 

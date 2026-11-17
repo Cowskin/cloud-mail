@@ -1,6 +1,7 @@
 import http from '@/axios/index.js';
 
 export const protectDraft = draft => http.post('/email/protectDraft', draft);
+export const authorizeMailLink = params => http.post('/email/authorizeLink',params,{noMsg:true,timeout:15000});
 
 export function emailList(accountId, allReceive, emailId, timeSort, size, type) {
     return http.get('/email/list', {params: {accountId, allReceive, emailId, timeSort, size, type}})

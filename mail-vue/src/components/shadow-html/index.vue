@@ -5,7 +5,8 @@
 </template>
 
 <script setup>
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
+const emit = defineEmits(['protected-link']);
 
 const props = defineProps({
   html: {
@@ -58,6 +59,9 @@ function updateContent() {
         color: #0E70DF;
       }
 
+      a[data-protected-link] { cursor: pointer; text-decoration: underline; }
+      a[data-protected-link]:focus-visible { outline: 2px solid #0E70DF; outline-offset: 3px; }
+
       .shadow-content {
         background: #FFFFFF;
         width: fit-content;
@@ -97,11 +101,27 @@ function autoScale() {
   hostElement.style.zoom = scale
 }
 
+function activateProtectedLink(event) {
+  if (event.type==='keydown' && !['Enter',' '].includes(event.key)) return;
+  const anchor = event.target.closest?.('a[data-protected-link]');
+  if (!anchor) return;
+  event.preventDefault();
+  const index = Number(anchor.dataset.protectedLink);
+  if (Number.isSafeInteger(index) && index>=0) emit('protected-link',index);
+}
+
 onMounted(() => {
   shadowRoot = container.value.attachShadow({ mode: 'open' })
+  shadowRoot.addEventListener('click',activateProtectedLink);
+  shadowRoot.addEventListener('keydown',activateProtectedLink);
   updateContent()
   autoScale()
 })
+
+onBeforeUnmount(() => {
+  shadowRoot?.removeEventListener('click',activateProtectedLink);
+  shadowRoot?.removeEventListener('keydown',activateProtectedLink);
+});
 
 watch(() => props.html, () => {
   updateContent()

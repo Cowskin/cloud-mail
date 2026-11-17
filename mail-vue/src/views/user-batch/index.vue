@@ -9,7 +9,7 @@
       <el-tab-pane label="创建" name="create">
         <section class="mode-section">
           <div class="mode-label">创建类型</div>
-          <el-segmented v-model="form.mode" :options="modeOptions" @change="clearPreview" />
+          <el-segmented v-model="form.mode" :options="modeOptions" :disabled="creating || checking" @change="clearPreview" />
           <div class="mode-facts">
             <span><Icon :icon="form.mode === 'inbox' ? 'solar:inbox-outline' : 'solar:user-id-outline'" />{{ form.mode === 'inbox' ? '归属当前账号' : '每个账户独立' }}</span>
             <span><Icon icon="solar:login-2-outline" />{{ form.mode === 'inbox' ? '不能独立登录' : '可以独立登录' }}</span>
@@ -18,33 +18,39 @@
         </section>
 
         <section class="rule-section">
-          <el-form label-position="top" class="rule-grid">
+          <el-form label-position="top" class="rule-grid" :disabled="creating || checking">
             <el-form-item :label="form.mode === 'inbox' ? '收件箱分组' : '批次名称'"><el-input v-model="form.batchName" maxlength="40" :placeholder="form.mode === 'inbox' ? '例如：采购账号 A 组' : '例如：独立用户 A 组'" /></el-form-item>
             <el-form-item label="分类"><el-input v-model="form.category" maxlength="30" placeholder="例如：采购、营销、测试" /></el-form-item>
             <el-form-item label="邮箱域名"><el-select v-model="form.suffix"><el-option v-for="domain in settingStore.domainList" :key="domain" :label="domain" :value="domain" /></el-select></el-form-item>
-            <el-form-item label="邮箱前缀"><el-input v-model="form.prefix" maxlength="30" placeholder="user" /></el-form-item>
-            <el-form-item label="分隔符"><el-select v-model="form.separator"><el-option label="无" value="" /><el-option label="短横线 -" value="-" /><el-option label="下划线 _" value="_" /><el-option label="点号 ." value="." /></el-select></el-form-item>
-            <el-form-item label="起始编号"><el-input-number v-model="form.start" :min="0" :max="999999" controls-position="right" /></el-form-item>
+            <el-form-item label="邮箱命名"><el-select v-model="form.addressMode"><el-option v-for="option in addressModes" :key="option.value" :label="option.label" :value="option.value" /></el-select></el-form-item>
+            <el-form-item :label="hasRandom ? '固定前缀（选填）' : '邮箱前缀'"><el-input v-model="form.prefix" maxlength="30" :placeholder="hasRandom ? '留空则不添加固定前缀' : 'user'" /></el-form-item>
+            <el-form-item label="分隔符"><el-select v-model="form.separator" :empty-values="[null, undefined]"><el-option label="无" value="" /><el-option label="短横线 -" value="-" /><el-option label="下划线 _" value="_" /><el-option label="点号 ." value="." /></el-select></el-form-item>
+            <el-form-item v-if="form.addressMode !== 'random'" label="起始编号"><el-input-number v-model="form.start" :min="0" :max="999999" controls-position="right" /></el-form-item>
             <el-form-item label="创建数量"><el-input-number v-model="form.count" :min="1" :max="500" controls-position="right" /></el-form-item>
-            <el-form-item label="编号位数"><el-input-number v-model="form.padding" :min="1" :max="8" controls-position="right" /></el-form-item>
+            <el-form-item v-if="form.addressMode !== 'random'" label="编号位数"><el-input-number v-model="form.padding" :min="1" :max="8" controls-position="right" /></el-form-item>
+            <el-form-item v-if="hasRandom" label="随机长度"><el-input-number v-model="form.randomLength" :min="4" :max="32" controls-position="right" /></el-form-item>
+            <el-form-item v-if="hasRandom" label="随机字符"><el-select v-model="form.randomCharset"><el-option v-for="option in characterSets" :key="option.value" :label="option.label" :value="option.value" /></el-select></el-form-item>
+            <el-form-item v-if="hasRandom" label="字符辨识"><el-checkbox v-model="form.excludeAmbiguous" class="character-option">排除易混字符 0、1、i、l、o</el-checkbox></el-form-item>
             <el-form-item v-if="form.mode === 'user'" label="权限身份"><el-select v-model="form.type"><el-option v-for="role in roles" :key="role.roleId" :label="role.name" :value="role.roleId" /></el-select></el-form-item>
             <el-form-item v-if="form.mode === 'user'" label="密码规则"><el-segmented v-model="form.passwordMode" :options="passwordModes" /></el-form-item>
             <el-form-item v-if="form.mode === 'user' && form.passwordMode === 'random'" label="密码长度"><el-input-number v-model="form.passwordLength" :min="8" :max="32" controls-position="right" /></el-form-item>
             <el-form-item v-if="form.mode === 'user' && form.passwordMode === 'fixed'" label="统一密码"><el-input v-model="form.fixedPassword" type="password" show-password maxlength="64" /></el-form-item>
             <el-form-item label="备注"><el-input v-model="form.note" maxlength="200" placeholder="选填，记录用途或负责人" /></el-form-item>
           </el-form>
+          <div class="rule-example" aria-live="polite"><span>格式示例</span><code v-if="exampleEmail">{{ exampleEmail }}</code><span v-else>{{ validateAddressRule(form) }}</span></div>
+          <p v-if="hasRandom" class="random-help">示例仅展示格式。检测时生成随机地址并排除批内重复；创建沿用预览。重新生成会替换整批预览，已存在及已删除地址仍按冲突规则处理。</p>
           <div class="create-policy">
-            <el-checkbox v-model="form.stopOnConflict">发现重复或已删除地址时停止整个批次</el-checkbox>
+            <el-checkbox v-model="form.stopOnConflict" :disabled="creating || checking">发现重复或已删除地址时停止整个批次</el-checkbox>
             <span class="muted">创建时服务端会再次复检，网络重试不会覆盖已有地址。</span>
           </div>
           <el-alert v-if="form.mode === 'user'" class="password-alert" type="warning" :closable="false" show-icon title="独立账户密码只在本次创建结果中显示，请创建后立即导出。" />
           <div class="actions">
-            <el-button :loading="checking" @click="generatePreview"><Icon icon="solar:shield-check-outline" />检测并预览</el-button>
+            <el-button :loading="checking" :disabled="creating" @click="generatePreview"><Icon icon="solar:shield-check-outline" />{{ hasRandom && preview.length ? '重新随机并检测' : '检测并预览' }}</el-button>
             <el-button type="primary" :loading="creating" :disabled="!canCreate" @click="createBatch"><Icon icon="fluent:people-add-24-regular" />{{ previewCreated ? '本批次已创建' : `创建 ${availableCount} 个` }}</el-button>
           </div>
           <div v-if="previewCreated" class="create-success">
             <div><Icon icon="solar:check-circle-outline" /><span>本批次已完成。结果保留在下方，请在离开前导出需要的信息。</span></div>
-            <div><el-button v-if="lastCreatedGroupId" @click="openCreatedGroup">查看收件箱分组</el-button><el-button type="primary" plain @click="startNextBatch">创建下一批</el-button></div>
+            <div><el-button v-if="lastCreatedGroupId" @click="openCreatedGroup">查看收件箱分组</el-button><el-button type="primary" plain :disabled="creating" @click="startNextBatch">创建下一批</el-button></div>
           </div>
         </section>
 
@@ -138,6 +144,7 @@ import {roleSelectUse} from '@/request/role.js'
 import {inboxGroupDelete, inboxGroupList, inboxGroupMembers, inboxGroupProtect, inboxGroupPurge, inboxGroupRestore, userBatchCreate, userBatchItems, userBatchList, userBatchPrecheck} from '@/request/user-batch.js'
 import {useSettingStore} from '@/store/setting.js'
 import {accountDeletedList, accountPurge, accountRestore} from '@/request/account.js'
+import {addressModes, characterSets, usesRandom, validateAddressRule, generateBatchAddresses, addressExample, formatAddressRule} from '@/utils/batch-address.js'
 
 defineOptions({name: 'user-batch'})
 const settingStore = useSettingStore()
@@ -146,10 +153,13 @@ const requestId = ref('')
 const lastCreatedGroupId = ref(null)
 const modeOptions = [{label: '收件箱（默认）', value: 'inbox'}, {label: '独立账户', value: 'user'}]
 const passwordModes = [{label: '随机密码', value: 'random'}, {label: '统一密码', value: 'fixed'}]
-const form = reactive({mode: 'inbox', batchName: '', category: '', note: '', suffix: settingStore.domainList[0], prefix: 'user', separator: '', start: 1, count: 100, padding: 3, type: null, passwordMode: 'random', passwordLength: 12, fixedPassword: '', stopOnConflict: true})
+const form = reactive({mode: 'inbox', batchName: '', category: '', note: '', suffix: settingStore.domainList[0], prefix: 'user', separator: '', addressMode: 'sequence', randomLength: 8, randomCharset: 'alphanumeric', excludeAmbiguous: true, start: 1, count: 100, padding: 3, type: null, passwordMode: 'random', passwordLength: 12, fixedPassword: '', stopOnConflict: true})
+const hasRandom = computed(() => usesRandom(form))
+const exampleEmail = computed(() => addressExample(form))
+let previewRevision = 0
 const availableCount = computed(() => preview.value.filter(item => item.status === 'available').length)
 const conflictCount = computed(() => preview.value.length - availableCount.value)
-const canCreate = computed(() => preview.value.length && !previewCreated.value && availableCount.value && (!form.stopOnConflict || conflictCount.value === 0))
+const canCreate = computed(() => !checking.value && !creating.value && preview.value.length && !previewCreated.value && availableCount.value && (!form.stopOnConflict || conflictCount.value === 0))
 
 const groups = ref([]), groupKeyword = ref(''), selectedGroup = ref(null), groupMembers = ref([]), memberTotal = ref(0), membersLoading = ref(false)
 const exportingGroup = ref(false)
@@ -163,17 +173,62 @@ const recoveryOptions = [{label: '已删除邮箱', value: 'mailbox'}, {label: '
 const batchDetailVisible = ref(false), selectedBatch = ref(null), batchItems = ref([]), batchItemTotal = ref(0), batchItemsLoading = ref(false), exportingBatch = ref(false)
 const batchItemQuery = reactive({email: '', status: '', page: 1, size: 50})
 
-watch(() => [form.mode, form.suffix, form.prefix, form.separator, form.start, form.count, form.padding, form.type, form.passwordMode, form.passwordLength, form.fixedPassword], clearPreview)
+watch(() => [form.mode, form.suffix, form.prefix, form.separator, form.addressMode, form.randomLength, form.randomCharset, form.excludeAmbiguous, form.start, form.count, form.padding, form.type, form.passwordMode, form.passwordLength, form.fixedPassword], clearPreview, {flush: 'sync'})
 
 onMounted(async () => { roles.value = await roleSelectUse(); form.type = roles.value[0]?.roleId || null; await Promise.all([loadGroups(), loadBatches(), loadRecovery()]) })
 
 function randomPassword(length) { const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%'; const bytes = new Uint32Array(length); crypto.getRandomValues(bytes); return Array.from(bytes, value => chars[value % chars.length]).join('') }
-function validateForm() { if (!form.batchName.trim()) return '请输入名称'; if (!form.prefix.trim() || !/^[a-zA-Z0-9._-]+$/.test(form.prefix)) return '邮箱前缀格式不正确'; if (form.mode === 'user' && !form.type) return '请选择权限身份'; if (form.mode === 'user' && form.passwordMode === 'fixed' && form.fixedPassword.length < 6) return '统一密码至少需要 6 位'; return '' }
-function clearPreview() { preview.value = []; previewCreated.value = false; requestId.value = ''; lastCreatedGroupId.value = null }
-async function generatePreview() { const error = validateForm(); if (error) return ElMessage.warning(error); checking.value = true; previewCreated.value = false; requestId.value = crypto.randomUUID(); try { const candidates = Array.from({length: form.count}, (_, index) => { const number = String(form.start + index).padStart(form.padding, '0'); return {email: `${form.prefix}${form.separator}${number}${form.suffix}`.toLowerCase(), password: form.mode === 'user' ? (form.passwordMode === 'random' ? randomPassword(form.passwordLength) : form.fixedPassword) : '', type: form.mode === 'user' ? form.type : 0} }); const checked = await userBatchPrecheck(candidates.map(item => item.email)); preview.value = candidates.map((item, index) => ({...item, ...checked.results[index], error: ''})) } finally { checking.value = false } }
-async function createBatch() { const confirmed = await ElMessageBox.confirm(`将创建 ${availableCount.value} 个${form.mode === 'inbox' ? '收件箱' : '独立账户'}。`, `确认创建“${form.batchName.trim()}”`, {confirmButtonText: '确认创建', cancelButtonText: '取消', type: 'warning'}).then(() => true).catch(() => false); if (!confirmed) return; creating.value = true; try { const rows = form.stopOnConflict ? preview.value : preview.value.filter(item => item.status === 'available'); const data = await userBatchCreate({requestId: requestId.value, stopOnConflict: form.stopOnConflict, mode: form.mode, batchName: form.batchName.trim(), rule: {prefix: form.prefix, separator: form.separator, start: form.start, count: rows.length, padding: form.padding, suffix: form.suffix, category: form.category.trim(), note: form.note.trim()}, list: rows.map(({email, password, type}) => ({email, password, type}))}); const resultMap = new Map(data.results.map(item => [item.email, item])); preview.value = preview.value.map(item => resultMap.has(item.email) ? {...item, ...resultMap.get(item.email), label: resultMap.get(item.email).success ? '创建成功' : '创建失败'} : item); previewCreated.value = true; lastCreatedGroupId.value = data.groupId || null; ElMessage.success(`创建完成：成功 ${data.successCount} 个，失败 ${data.failedCount} 个`); await Promise.all([loadGroups(), loadBatches()]) } finally { creating.value = false } }
+function validateForm() {
+  if (!form.batchName.trim()) return '请输入名称'
+  const addressError = validateAddressRule(form)
+  if (addressError) return addressError
+  if (form.mode === 'user' && !form.type) return '请选择权限身份'
+  if (form.mode === 'user' && form.passwordMode === 'fixed' && form.fixedPassword.length < 6) return '统一密码至少需要 6 位'
+  if (form.mode === 'user' && form.passwordMode === 'random' && (!Number.isInteger(form.passwordLength) || form.passwordLength < 8 || form.passwordLength > 32)) return '密码长度需为 8–32 的整数'
+  return ''
+}
+function clearPreview() { previewRevision++; preview.value = []; previewCreated.value = false; requestId.value = ''; lastCreatedGroupId.value = null }
+async function generatePreview() {
+  if (checking.value || creating.value) return
+  const error = validateForm()
+  if (error) return ElMessage.warning(error)
+  if (previewCreated.value && !await ElMessageBox.confirm('重新生成会清除本次结果中的密码，请先导出需要的信息。', '重新生成预览', {confirmButtonText: '重新生成', cancelButtonText: '取消', type: 'warning'}).then(() => true).catch(() => false)) return
+  clearPreview()
+  const revision = previewRevision
+  checking.value = true
+  try {
+    const candidates = generateBatchAddresses(form).map(email => ({email, password: form.mode === 'user' ? (form.passwordMode === 'random' ? randomPassword(form.passwordLength) : form.fixedPassword) : '', type: form.mode === 'user' ? form.type : 0}))
+    const checked = await userBatchPrecheck(candidates.map(item => item.email))
+    if (revision !== previewRevision) return
+    preview.value = candidates.map((item, index) => ({...item, ...checked.results[index], error: ''}))
+    requestId.value = crypto.randomUUID()
+  } catch (error) {
+    if (error instanceof Error) ElMessage.error(error.message)
+  } finally { checking.value = false }
+}
+async function createBatch() {
+  if (!canCreate.value) return
+  const error = validateForm()
+  if (error) return ElMessage.warning(error)
+  creating.value = true
+  try {
+    const confirmed = await ElMessageBox.confirm(`将创建 ${availableCount.value} 个${form.mode === 'inbox' ? '收件箱' : '独立账户'}，地址与下方预览一致。`, `确认创建“${form.batchName.trim()}”`, {confirmButtonText: '确认创建', cancelButtonText: '取消', type: 'warning'}).then(() => true).catch(() => false)
+    if (!confirmed) return
+    const rows = form.stopOnConflict ? preview.value : preview.value.filter(item => item.status === 'available')
+    const data = await userBatchCreate({requestId: requestId.value, stopOnConflict: form.stopOnConflict, mode: form.mode, batchName: form.batchName.trim(), rule: {prefix: form.prefix, separator: form.separator, addressMode: form.addressMode, randomLength: form.randomLength, randomCharset: form.randomCharset, excludeAmbiguous: form.excludeAmbiguous, start: form.start, count: rows.length, padding: form.padding, suffix: form.suffix, category: form.category.trim(), note: form.note.trim()}, list: rows.map(({email, password, type}) => ({email, password, type}))})
+    const resultMap = new Map(data.results.map(item => [item.email, item]))
+    preview.value = preview.value.map(item => resultMap.has(item.email) ? {...item, ...resultMap.get(item.email), label: resultMap.get(item.email).success ? '创建成功' : '创建失败'} : item)
+    previewCreated.value = true
+    lastCreatedGroupId.value = data.groupId || null
+    ElMessage.success(`创建完成：成功 ${data.successCount} 个，失败 ${data.failedCount} 个`)
+    await Promise.all([loadGroups(), loadBatches()])
+  } catch (error) {
+    // API failures are already shown by the HTTP interceptor. Preserve this preview and request ID for retry.
+    if (error instanceof Error) ElMessage.error(error.message)
+  } finally { creating.value = false }
+}
 async function openCreatedGroup() { activeTab.value = 'groups'; await loadGroups(); const group = groups.value.find(item => item.groupId === lastCreatedGroupId.value); if (group) await selectGroup(group) }
-function startNextBatch() { const nextStart = form.start + form.count; clearPreview(); form.start = nextStart; form.batchName = ''; activeTab.value = 'create' }
+function startNextBatch() { const nextStart = form.start + form.count; clearPreview(); if (form.addressMode !== 'random') form.start = nextStart; form.batchName = ''; activeTab.value = 'create' }
 function statusType(status) { return status === 'available' ? 'success' : status === 'deleted' ? 'warning' : status === 'invalid' ? 'danger' : 'info' }
 
 async function loadGroups() { groups.value = await inboxGroupList({keyword: groupKeyword.value, deleted: '0'}); if (selectedGroup.value && !groups.value.some(item => item.groupId === selectedGroup.value.groupId)) { selectedGroup.value = null; groupMembers.value = []; memberTotal.value = 0 } }
@@ -195,7 +250,7 @@ async function loadBatchItems() { if (!selectedBatch.value) return; batchItemsLo
 function searchBatchItems() { batchItemQuery.page = 1; loadBatchItems() }
 function changeBatchItemPage(page) { batchItemQuery.page = page; loadBatchItems() }
 async function exportBatchItems() { exportingBatch.value = true; try { const data = await userBatchItems({batchId: selectedBatch.value.batchId, email: batchItemQuery.email, status: batchItemQuery.status, export: '1'}); downloadCsv(`${selectedBatch.value.name}-结果.csv`, ['邮箱', '状态', '说明'], data.list.map(item => [item.email, item.status ? '成功' : '失败', item.error])); ElMessage.success(`已导出 ${data.list.length} 条结果`) } finally { exportingBatch.value = false } }
-function formatRule(rule = {}) { return `${rule.prefix || ''}${rule.separator || ''}${String(rule.start || 0).padStart(rule.padding || 1, '0')}…${rule.suffix || ''}，${rule.count || 0} 个` }
+function formatRule(rule = {}) { return formatAddressRule(rule) }
 function refreshCurrent() { if (activeTab.value === 'groups') loadGroups(); else if (activeTab.value === 'history') loadBatches(); else if (activeTab.value === 'recovery') loadRecovery(); else if (preview.value.length) generatePreview(); else ElMessage.info('填写规则后点击“检测并预览”') }
 function csvCell(value) { return `"${String(value ?? '').replaceAll('"', '""')}"` }
 function downloadCsv(filename, headers, rows) { const content = '\uFEFF' + [headers, ...rows].map(row => row.map(csvCell).join(',')).join('\n'); const url = URL.createObjectURL(new Blob([content], {type: 'text/csv;charset=utf-8'})); const link = document.createElement('a'); link.href = url; link.download = filename; link.click(); URL.revokeObjectURL(url) }
@@ -209,6 +264,8 @@ async function purgeDeletedGroup(row) { const answer = await ElMessageBox.prompt
 </script>
 
 <style scoped lang="scss">
+.rule-grid :deep(.character-option .el-checkbox__label) { color:var(--el-text-color-regular) }
+.rule-example { display:flex; flex-wrap:wrap; align-items:baseline; gap:8px 16px; margin:0 0 12px; font-size:13px; color:var(--el-text-color-regular) }.rule-example code { overflow-wrap:anywhere; color:var(--el-text-color-primary) }.random-help { margin:0 0 12px; line-height:1.6; font-size:13px; color:var(--el-text-color-regular) }.actions { flex-wrap:wrap }
 .batch-page { height: 100%; overflow: auto; padding: 18px 22px 30px; box-sizing: border-box; }.page-toolbar,.section-heading { display:flex; align-items:center; justify-content:space-between; gap:16px } h2,h3 { margin:0; letter-spacing:0 }.page-toolbar p,.section-heading span { margin:5px 0 0; color:var(--el-text-color-secondary); font-size:13px }
 .mode-section { display:flex; align-items:center; gap:18px; padding:8px 0 18px; flex-wrap:wrap }.mode-label { font-weight:600 }.mode-facts { display:flex; gap:18px; color:var(--el-text-color-regular); font-size:13px }.mode-facts span { display:flex; align-items:center; gap:5px }.rule-section,.preview-section,.group-tree-panel,.group-detail { border-top:1px solid var(--el-border-color); padding-top:18px }.rule-grid { display:grid; grid-template-columns:repeat(4,minmax(150px,1fr)); gap:0 16px }.rule-grid :deep(.el-input-number),.rule-grid :deep(.el-select) { width:100% }.create-policy { display:flex; align-items:center; gap:14px; flex-wrap:wrap }.actions { display:flex; justify-content:flex-end; gap:10px; margin:14px 0 18px }.preview-section { margin-top:4px }.section-heading { margin-bottom:14px }.muted { color:var(--el-text-color-secondary); font-size:12px }
 .password-alert { margin-top:14px }.create-success { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:12px 14px; margin-bottom:18px; border:1px solid var(--el-color-success-light-5); border-radius:6px; background:var(--el-color-success-light-9) }.create-success>div { display:flex; align-items:center; gap:8px }.create-success svg { color:var(--el-color-success); font-size:20px; flex:none }

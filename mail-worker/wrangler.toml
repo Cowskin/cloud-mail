@@ -54,6 +54,7 @@ crons = ["0 16 * * *", "*/5 * * * *"] # Daily maintenance + durable mail recover
 
 
 [vars]
+domain = ["happyx2.com", "mail.c2cool.com"]
 # storage_d1_limit_mb = 500		#容量评估基准：免费版500，付费版10240
 # storage_attachment_limit_mb = 0	#KV/S3/R2附件额度；0表示只统计用量、不估算百分比
 #ai_model = ""			#ai模型,不填默认使用@cf/meta/llama-3.1-8b-instruct

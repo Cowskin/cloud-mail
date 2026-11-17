@@ -353,9 +353,9 @@ const userBatchService = {
 				g.create_time AS createTime, COUNT(m.member_id) AS inboxCount,
 				COALESCE(SUM(CASE WHEN a.is_del = 0 THEN 1 ELSE 0 END), 0) AS activeInboxCount,
 				COALESCE(SUM(CASE WHEN a.is_del = 1 THEN 1 ELSE 0 END), 0) AS deletedInboxCount,
-				COALESCE(SUM((SELECT COUNT(*) FROM email e WHERE e.account_id = m.account_id AND e.is_del = 0)), 0) AS emailCount,
-				COALESCE(SUM((SELECT COUNT(*) FROM attachments att WHERE att.account_id = m.account_id)), 0) AS attachmentCount,
-				COALESCE(SUM((SELECT COUNT(*) FROM email e WHERE e.account_id = m.account_id AND e.is_del = 0 AND e.unread = 0)), 0) AS unreadCount
+				COALESCE(SUM((SELECT COUNT(*) FROM email e INDEXED BY idx_email_account_del_unread_time WHERE e.account_id = m.account_id AND e.is_del = 0)), 0) AS emailCount,
+				COALESCE(SUM((SELECT COUNT(*) FROM attachments att INDEXED BY idx_attachment_account_id WHERE att.account_id = m.account_id)), 0) AS attachmentCount,
+				COALESCE(SUM((SELECT COUNT(*) FROM email e INDEXED BY idx_email_account_del_unread_time WHERE e.account_id = m.account_id AND e.is_del = 0 AND e.unread = 0)), 0) AS unreadCount
 			FROM inbox_batch_group g LEFT JOIN inbox_batch_member m ON m.group_id = g.group_id
 			LEFT JOIN account a ON a.account_id = m.account_id
 			WHERE g.owner_id = ? AND g.is_del = ? ${keywordSql}
@@ -381,14 +381,20 @@ const userBatchService = {
 		if (params.status === 'active') statusSql = 'AND a.is_del = 0';
 		if (params.status === 'deleted') statusSql = 'AND a.is_del = 1';
 		const totalRow = await c.env.db.prepare(`SELECT COUNT(*) AS total FROM inbox_batch_member m JOIN account a ON a.account_id = m.account_id WHERE m.group_id = ? ${keywordSql} ${statusSql}`).bind(...bindings).first();
+		// Limit members before joining mail: OFFSET must not aggregate preceding pages.
 		const { results } = await c.env.db.prepare(`
-			SELECT m.member_id AS memberId, m.account_id AS accountId, m.email, a.is_del AS isDel,
+			WITH page AS MATERIALIZED (
+				SELECT m.member_id, m.account_id, m.email, a.is_del
+				FROM inbox_batch_member m JOIN account a ON a.account_id = m.account_id
+				WHERE m.group_id = ? ${keywordSql} ${statusSql}
+				ORDER BY m.member_id ASC LIMIT ? OFFSET ?
+			)
+			SELECT m.member_id AS memberId, m.account_id AS accountId, m.email, m.is_del AS isDel,
 				COUNT(e.email_id) AS emailCount, SUM(CASE WHEN e.unread = 0 THEN 1 ELSE 0 END) AS unreadCount,
 				MAX(e.create_time) AS latestEmailTime
-			FROM inbox_batch_member m JOIN account a ON a.account_id = m.account_id
-			LEFT JOIN email e ON e.account_id = m.account_id AND e.is_del = 0
-			WHERE m.group_id = ? ${keywordSql} ${statusSql}
-			GROUP BY m.member_id ORDER BY m.member_id ASC LIMIT ? OFFSET ?
+			FROM page m
+			LEFT JOIN email e INDEXED BY idx_email_account_del_unread_time ON e.account_id = m.account_id AND e.is_del = 0
+			GROUP BY m.member_id ORDER BY m.member_id ASC
 		`).bind(...bindings, size, offset).all();
 		return { list: results, total: Number(totalRow?.total || 0), page, size };
 	},

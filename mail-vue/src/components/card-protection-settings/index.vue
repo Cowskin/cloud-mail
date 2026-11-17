@@ -44,6 +44,27 @@
       <p v-else-if="error" role="alert" class="protection-error">{{ error }}</p>
       <el-button v-if="!status && !loading" @click="load">{{ t('cardProtectionRetry') }}</el-button>
       <p v-if="saved" role="status">{{ t('saveSuccessMsg') }}</p>
+      <div class="protection-form" :aria-busy="hookLoading">
+        <h3>{{ t('giftWebhookTitle') }}</h3>
+        <p id="gift-webhook-hint">{{ t('giftWebhookHint') }}</p>
+        <p v-if="!status?.enabled">{{ t('giftWebhookRequiresProtection') }}</p>
+        <p v-if="hook">{{ t(hook.configured ? 'giftWebhookConfigured' : 'giftWebhookEmpty') }}</p>
+        <el-form v-if="hook" label-position="top" :disabled="hookLoading || loading" @submit.prevent="saveHook(false)">
+          <el-form-item :label="t('giftWebhookLabel')" for="gift-webhook-url">
+            <el-input id="gift-webhook-url" v-model="hookUrl" type="textarea" :autosize="{minRows:3,maxRows:8}"
+                :readonly="!canEdit || !status?.enabled" autocomplete="off" :spellcheck="false"
+                :placeholder="t('giftWebhookPlaceholder')"
+                aria-describedby="gift-webhook-hint" maxlength="2048" />
+          </el-form-item>
+          <div v-if="canEdit" class="protection-actions">
+            <el-button v-if="status?.enabled" type="primary" native-type="submit" :loading="hookLoading" :disabled="!hookChanged">{{ t('giftWebhookSave') }}</el-button>
+            <el-button v-if="hook.configured" :disabled="hookLoading || loading" @click="saveHook(true)">{{ t('giftWebhookRemove') }}</el-button>
+          </div>
+        </el-form>
+        <p v-if="hookError" role="alert" class="protection-error">{{ hookError }}</p>
+        <el-button v-if="!hook && !hookLoading" @click="loadHook">{{ t('cardProtectionRetry') }}</el-button>
+        <p v-if="hookSaved" role="status">{{ t('saveSuccessMsg') }}</p>
+      </div>
     </div>
   </section>
 </template>
@@ -52,13 +73,15 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { hasPerm } from '@/perm/perm.js';
-import { cardProtectionStatus, cardProtectionUpdate } from '@/request/setting.js';
+import { cardProtectionStatus, cardProtectionUpdate, giftWebhookStatus, giftWebhookUpdate } from '@/request/setting.js';
 import { acceptProtectionState } from '@/utils/card-protection.js';
 
 const { t } = useI18n();
 const status = ref(null), loading = ref(false), action = ref(''), error = ref(''), saved = ref(false);
 const form = reactive({ currentPassword: '', newPassword: '', confirmPassword: '' });
+const hook = ref(null), hookUrl = ref(''), hookLoading = ref(false), hookError = ref(''), hookSaved = ref(false);
 const canEdit = computed(() => hasPerm('setting:set'));
+const hookChanged = computed(() => !!hookUrl.value.trim() && hookUrl.value.trim() !== (hook.value?.url || ''));
 const actionTitle = computed(() => t({enable:'cardProtectionEnable',change:'cardProtectionChange',disable:'cardProtectionDisable'}[action.value] || 'cardEncryption'));
 function cancel() {
   action.value = ''; error.value = '';
@@ -89,7 +112,26 @@ async function submit() {
     if (e.code === 409) { cancel(); await load(); }
   } finally { loading.value = false; }
 }
-onMounted(load);
+async function loadHook() {
+  hookLoading.value = true; hookError.value = '';
+  try { hook.value = await giftWebhookStatus(); hookUrl.value = hook.value.url || ''; }
+  catch (e) { hookError.value = e.message || t('reqFailErrorMsg'); }
+  finally { hookLoading.value = false; }
+}
+async function saveHook(remove) {
+  if (hookLoading.value || loading.value || !hook.value || !status.value || !canEdit.value ||
+      (!remove && (!status.value.enabled || !hookChanged.value))) return;
+  hookError.value = ''; hookSaved.value = false;
+  hookLoading.value = true;
+  try {
+    hook.value = await giftWebhookUpdate({version:hook.value.version,protectionVersion:status.value.version,remove,...(!remove ? {url:hookUrl.value} : {})});
+    hookUrl.value = hook.value.url || ''; hookSaved.value = true;
+  } catch (e) {
+    hookError.value = e.message || t('reqFailErrorMsg');
+    if (e.code === 409) { await Promise.all([load(),loadHook()]); hookError.value = t('giftWebhookConflict'); }
+  } finally { hookLoading.value = false; }
+}
+onMounted(() => Promise.all([load(),loadHook()]));
 </script>
 
 <style scoped lang="scss">

@@ -16,6 +16,7 @@ for (const name of ['db', 'kv', 'assets', 'admin', 'domain', 'jwt_secret', 'CARD
   if (!bindings.some(b => b.name === name)) throw new Error(`Missing production binding: ${name}`);
 }
 const indexes = ['idx_email_user_type_del_id','idx_email_account_user_type_del_id','idx_email_type_status_id','idx_email_to_nocase_type','idx_email_from_nocase_type','idx_attachment_email_id','idx_star_user_email',
+  'idx_email_account_del_unread_time','idx_attachment_account_id',
   'idx_email_meta_owner','idx_email_meta_type_status','idx_email_meta_subject','idx_email_meta_name','idx_email_meta_date','idx_email_meta_storage','idx_email_delivery_pending'];
 const data = run('d1', 'execute', 'cloud-mail-db', '--remote', '--json', '--command', "SELECT name FROM sqlite_master WHERE type='index'");
 const found = new Set(data.flatMap(r => r.results || []).map(r => r.name));

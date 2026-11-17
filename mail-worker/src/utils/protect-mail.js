@@ -1,6 +1,6 @@
-import { parseHTML } from 'linkedom';
 import cardProtection from '../service/card-protection-service';
 import { presentationCss, safeArtwork } from './mail-presentation';
+import { mailDocument,mailLink,isGiftMail,hideProtectedUrls,textLinks,protectedLinkText } from './mail-links';
 
 // Recognize the fixed 16-character Apple format, including common printed
 // grouping and zero-width separators. Existing JG_ ciphertext is left alone.
@@ -22,8 +22,9 @@ export async function mailProtector(c, policy = null) {
     }
     return replacements.get(plain);
   };
-  async function replaceText(value) {
+  async function replaceText(value, giftMail = false) {
     if (value.length > 2 * 1024 * 1024) throw new Error('Mail protection limit exceeded');
+    value = hideProtectedUrls(value,giftMail);
     const matches = [...value.matchAll(candidate)];
     if (!matches.length) return value;
     const output = []; let position = 0;
@@ -33,12 +34,15 @@ export async function mailProtector(c, policy = null) {
     }
     return output.join('') + value.slice(position);
   }
-  async function replaceHtml(value) {
+  async function replaceHtml(value, mail, key) {
     if (!value) return value;
     if (value.length > 2 * 1024 * 1024) throw new Error('Mail protection limit exceeded');
-    const { document } = parseHTML(/<html(?:\s|>)/i.test(value) ? value : `<html><body>${value}</body></html>`);
-    // Keep presentation attributes and parsed layout CSS. URLs remain disabled,
-    // except for reviewed generic artwork that cannot carry a redemption code.
+    const document = mail.documents.get(key);
+    const giftMail = mail.giftMail;
+    const links = new Map([...document.querySelectorAll('a[href]')].map((node,index) =>
+      [node,{...mailLink(node.getAttribute('href'),giftMail,node.textContent),index}]));
+    // Images/CSS retain their existing restrictions. Link destinations follow
+    // the same policy used by the password-authorized single-link endpoint.
     const attributes = async element => {
       const image = element.localName === 'img' ? safeArtwork(element.getAttribute('src')) : null;
       for (const attr of [...element.attributes]) {
@@ -48,7 +52,7 @@ export async function mailProtector(c, policy = null) {
           const css = presentationCss(value, true, containsCard);
           if (css) element.setAttribute('style', css);
         } else if (['alt', 'title', 'aria-label'].includes(name)) {
-          element.setAttribute(name, await replaceText(value));
+          element.setAttribute(name, await replaceText(value,giftMail));
         } else if (!containsCard(value) && (
           (['class', 'id'].includes(name) && /^[\w\s:-]{1,512}$/.test(value)) ||
           (['width', 'height'].includes(name) && /^(?:\d{1,5}(?:\.\d+)?(?:px|%)?|auto)$/i.test(value)) ||
@@ -65,7 +69,19 @@ export async function mailProtector(c, policy = null) {
         element.setAttribute('src', image);
         element.setAttribute('referrerpolicy', 'no-referrer');
       }
-      if (element.localName === 'a') element.setAttribute('aria-disabled', 'true');
+      if (element.localName === 'a') {
+        const link = links.get(element);
+        if (link?.kind === 'safe') {
+          element.setAttribute('href',link.url);
+          element.setAttribute('target','_blank');
+          element.setAttribute('rel','noopener noreferrer');
+          element.setAttribute('referrerpolicy','no-referrer');
+        } else if (link?.kind === 'protected') {
+          element.setAttribute('data-protected-link',String(link.index));
+          element.setAttribute('role','button');
+          element.setAttribute('tabindex','0');
+        } else element.setAttribute('aria-disabled','true');
+      }
     };
     const clean = async node => {
       for (const child of [...node.childNodes]) {
@@ -105,11 +121,15 @@ export async function mailProtector(c, policy = null) {
       }
     };
     collect(document.body);
-    // Join text nodes so cards split by <span>, <wbr>, entities, etc. are treated
-    // as one card. Apply edits backwards without flattening the surrounding mail.
-    for (const match of [...text.matchAll(candidate)].reverse()) {
+    // Redact URLs and cards even when split across spans. Apply edits backwards
+    // without flattening the surrounding mail or exposing a redemption token.
+    const hiddenUrls = textLinks(text).filter(m=>mailLink(m[0],giftMail).kind!=='safe');
+    const edits = [...hiddenUrls.map(m=>({match:m,replacement:protectedLinkText})),
+      ...[...text.matchAll(candidate)].filter(m=>!hiddenUrls.some(url=>m.index>=url.index && m.index<url.index+url[0].length))
+        .map(m=>({match:m}))].sort((a,b)=>b.match.index-a.match.index);
+    for (const {match,replacement} of edits) {
       const start = match.index, end = start + match[0].length;
-      const cipher = await encryptOnce(normalize(match[0]));
+      const cipher = replacement || await encryptOnce(normalize(match[0]));
       let inserted = false;
       for (const item of positions) {
         if (item.end <= start || item.start >= end) continue;
@@ -125,14 +145,22 @@ export async function mailProtector(c, policy = null) {
     body.append(...document.body.childNodes); html.append(body);
     return html.outerHTML;
   }
-  const visit = async (value, key = '') => {
-    if (typeof value === 'string') return key === 'content' || key === 'html' ? replaceHtml(value) : replaceText(value);
-    if (Array.isArray(value)) return Promise.all(value.map(item => visit(item)));
+  const visit = async (value, key = '', mail = {giftMail:false}) => {
+    if (typeof value === 'string') return key === 'content' || key === 'html' ? replaceHtml(value,mail,key) : replaceText(value,mail.giftMail);
+    if (Array.isArray(value)) return Promise.all(value.map(item => visit(item,'',mail)));
     if (!value || typeof value !== 'object') return value;
+    if ('content' in value || 'html' in value || 'text' in value) {
+      const documents = new Map();
+      for (const name of ['content','html']) if (value[name]) documents.set(name,mailDocument(value[name]));
+      mail = {documents,giftMail:isGiftMail(value,[...documents.values()].map(doc=>doc.body.textContent).join('\n'))};
+    }
     const result = {};
     for (const [name, item] of Object.entries(value)) {
       if (['attList', 'attachments'].includes(name)) { result[name] = []; continue; }
-      result[name] = await visit(item, name);
+      result[name] = await visit(item, name, mail);
+    }
+    if (!value.content && !value.html && typeof value.text==='string') {
+      result.protectedLinks = textLinks(value.text).flatMap((m,index)=>mailLink(m[0],mail.giftMail).kind==='protected'?[index]:[]);
     }
     if ('content' in value || 'text' in value) result.cardProtected = true;
     return result;

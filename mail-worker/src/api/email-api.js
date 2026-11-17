@@ -4,6 +4,13 @@ import result from '../model/result';
 import userContext from '../security/user-context';
 import attService from '../service/att-service';
 import { retryD1Read } from '../utils/d1-retry';
+import { authorizeMailLink } from '../service/mail-link-service';
+
+app.post('/email/authorizeLink',async c => {
+	c.header('Cache-Control','no-store, private');
+	c.header('Referrer-Policy','no-referrer');
+	return c.json(result.ok(await authorizeMailLink(c,await c.req.json())));
+});
 
 app.get('/email/list', async (c) => {
 	const data = await retryD1Read(() => emailService.list(c, c.req.query(), userContext.getUserId(c)));

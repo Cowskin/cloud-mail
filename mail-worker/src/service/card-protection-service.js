@@ -28,6 +28,17 @@ async function seal(c, material, version) {
   return toBase64(new Uint8Array([...iv, ...encrypted]));
 }
 
+async function checkPassword(row, password) {
+  if (!validPassword(password)) throw new BizError('请输入原保护密码 / Enter current protection password',400);
+  if (!row.verifier) throw unavailable();
+  const material = await deriveMaterial(password);
+  try {
+    if (!same(await sign(material, `cloudmail/verify/${row.verifier_salt}`),fromBase64(row.verifier))) {
+      throw new BizError('原保护密码不正确 / Incorrect protection password',400);
+    }
+  } finally { material.fill(0); }
+}
+
 // Only cryptographic contexts are cached. Policy/version is read from D1 for
 // every request; KV eventual consistency must never re-enable raw output.
 const contexts = new Map();
@@ -70,6 +81,28 @@ const service = {
       } finally { material.fill(0); }
     } catch { throw unavailable(); }
   },
+  // Shared by password changes and one-link authorization. Failed or abandoned
+  // attempts count atomically across Worker instances for 15 minutes.
+  async reserveAttempt(c,version) {
+    const now = Math.floor(Date.now()/1000);
+    const reserved = await c.env.db.prepare(`UPDATE card_protection SET
+      attempts=CASE WHEN window_start<=? THEN 1 ELSE attempts+1 END,
+      window_start=CASE WHEN window_start<=? THEN ? ELSE window_start END
+      WHERE id=1 AND version=? AND (window_start<=? OR attempts<5) RETURNING id`)
+      .bind(now-900,now-900,now,version,now-900).first();
+    if (!reserved) throw new BizError('尝试过于频繁或设置已变更，请稍后刷新重试 / Too many attempts or settings changed; retry later',429);
+  },
+  async authorize(c,{version,currentPassword}) {
+    const row = await this.read(c);
+    if (!row.enabled || row.version !== version) throw new BizError('保护设置已变更，请刷新 / Protection settings changed; refresh',409);
+    if (!validPassword(currentPassword)) throw new BizError('请输入原保护密码 / Enter current protection password',400);
+    await this.reserveAttempt(c,version);
+    await checkPassword(row,currentPassword);
+    const verified = await c.env.db.prepare('UPDATE card_protection SET attempts=0,window_start=0 WHERE id=1 AND enabled=1 AND version=? RETURNING version')
+      .bind(version).first();
+    if (!verified) throw new BizError('保护设置已变更，请刷新 / Protection settings changed; refresh',409);
+    return row;
+  },
   async update(c, params) {
     const { action, version, currentPassword, newPassword, confirmPassword } = params;
     if (!['enable', 'change', 'disable'].includes(action) || !Number.isSafeInteger(version)) {
@@ -86,23 +119,11 @@ const service = {
     if (action !== 'disable' && (!validPassword(newPassword) || newPassword !== confirmPassword)) {
       throw new BizError('新密码不能为空、不能换行、最多 1024 个 UTF-8 字节且两次输入一致 / New passwords must match, be nonempty single-line text, and fit in 1024 UTF-8 bytes', 400);
     }
-    // Reserve a verification attempt atomically across Worker instances, before
-    // expensive PBKDF2. Failed/abandoned attempts remain counted for 15 minutes.
-    const now = Math.floor(Date.now() / 1000);
-    const reserved = await c.env.db.prepare(`UPDATE card_protection SET
-      attempts=CASE WHEN window_start<=? THEN 1 ELSE attempts+1 END,
-      window_start=CASE WHEN window_start<=? THEN ? ELSE window_start END
-      WHERE id=1 AND version=? AND (window_start<=? OR attempts<5) RETURNING id`)
-      .bind(now - 900, now - 900, now, version, now - 900).first();
-    if (!reserved) throw new BizError('尝试过于频繁或设置已变更，请稍后刷新重试 / Too many attempts or settings changed; retry later', 429);
+    await this.reserveAttempt(c,version);
     let material;
     try {
       if (verifyCurrent) {
-        material = await deriveMaterial(currentPassword);
-        if (!same(await sign(material, `cloudmail/verify/${row.verifier_salt}`), fromBase64(row.verifier))) {
-          throw new BizError('原保护密码不正确 / Incorrect protection password', 400);
-        }
-        material.fill(0);
+        await checkPassword(row,currentPassword);
       }
       let sealed = row.sealed_key, salt = row.verifier_salt, verifier = row.verifier;
       const nextVersion = version + 1;

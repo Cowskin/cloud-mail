@@ -3,6 +3,16 @@ import result from '../model/result';
 import settingService from '../service/setting-service';
 import userContext from "../security/user-context";
 import cardProtection from '../service/card-protection-service';
+import giftWebhook from '../service/gift-webhook-config';
+
+app.get('/setting/giftWebhook/status', async c => {
+	c.header('Cache-Control', 'no-store, private');
+	return c.json(result.ok(await giftWebhook.status(c)));
+});
+app.put('/setting/giftWebhook/update', async c => {
+	c.header('Cache-Control', 'no-store, private');
+	return c.json(result.ok(await giftWebhook.update(c, await c.req.json())));
+});
 
 app.get('/setting/cardProtection/status', async c => {
 	c.header('Cache-Control', 'no-store, private');

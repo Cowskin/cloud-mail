@@ -36,8 +36,11 @@
             <el-alert v-if="email.status === 5" :closable="false" :title="$t('delayed')" class="email-msg" type="warning" show-icon />
           </div>
           <el-scrollbar class="htm-scrollbar" :class="email.attList.length === 0 ? 'bottom-distance' : ''">
-            <ShadowHtml class="shadow-html" :html="formatImage(email.content)" v-if="email.content" />
+            <ShadowHtml class="shadow-html" :html="formatImage(email.content)" v-if="email.content" @protected-link="openProtectedLink" />
             <pre v-else class="email-text" >{{email.text}}</pre>
+            <div v-if="!email.content && email.cardProtected && email.protectedLinks?.length" class="protected-links">
+              <el-button v-for="index in email.protectedLinks" :key="index" @click="openProtectedLink(index)">{{ t('protectedMailLink') }} {{ index+1 }}</el-button>
+            </div>
           </el-scrollbar>
           <div class="att" v-if="email.attList.length > 0">
             <div class="att-title">
@@ -72,6 +75,24 @@
         show-progress
         @close="showPreview = false"
     />
+    <el-dialog v-model="linkDialog" :title="t('protectedMailLink')" width="min(480px, calc(100vw - 32px))"
+        :close-on-click-modal="!linkLoading" :close-on-press-escape="!linkLoading" :show-close="!linkLoading" @closed="!linkDialog && resetLink()" @opened="linkPasswordInput?.focus()">
+      <p class="link-hint">{{ t(linkUrl ? 'protectedMailLinkReady' : 'protectedMailLinkHint') }}</p>
+      <el-form v-if="!linkUrl" label-position="top" :disabled="linkLoading" @submit.prevent="verifyLink">
+        <el-form-item :label="t('cardProtectionCurrent')" for="mail-link-password">
+          <el-input ref="linkPasswordInput" id="mail-link-password" v-model="linkPassword" type="password" show-password autocomplete="current-password" required />
+        </el-form-item>
+        <p v-if="linkError" role="alert" class="link-error">{{ linkError }}</p>
+        <div class="link-actions">
+          <el-button :disabled="linkLoading" @click="linkDialog=false">{{ t('cancel') }}</el-button>
+          <el-button type="primary" native-type="submit" :loading="linkLoading">{{ t('protectedMailLinkVerify') }}</el-button>
+        </div>
+      </el-form>
+      <template v-else>
+        <p class="link-hint">{{ linkHost }}</p>
+        <a class="el-button el-button--primary" :href="linkUrl" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" @click="linkDialog=false">{{ t('protectedMailLinkOpen') }}</a>
+      </template>
+    </el-dialog>
   </div>
 </template>
 <script setup>
@@ -79,7 +100,7 @@ import ShadowHtml from '@/components/shadow-html/index.vue'
 import {reactive, ref, watch, onMounted, onUnmounted} from "vue";
 import {useRouter} from 'vue-router'
 import {ElMessage, ElMessageBox} from 'element-plus'
-import {emailDelete, emailRead} from "@/request/email.js";
+import {emailDelete, emailRead, authorizeMailLink} from "@/request/email.js";
 import {Icon} from "@iconify/vue";
 import {useEmailStore} from "@/store/email.js";
 import {useAccountStore} from "@/store/account.js";
@@ -102,6 +123,9 @@ const router = useRouter()
 const email = emailStore.contentData.email
 const showPreview = ref(false)
 const srcList = reactive([])
+const linkDialog=ref(false), linkPassword=ref(''), linkLoading=ref(false), linkError=ref(''), linkUrl=ref(''), linkHost=ref('');
+const linkPasswordInput=ref(null);
+let linkIndex=-1, linkRequest=0;
 
 const { t } = useI18n()
 watch(() => accountStore.currentAccountId, () => {
@@ -117,7 +141,33 @@ onMounted(() => {
 
 onUnmounted(() => {
   emailStore.contentData.showUnread = false;
+  resetLink();
 })
+
+function resetLink() {
+  linkRequest++; linkIndex=-1;
+  linkPassword.value=''; linkUrl.value=''; linkHost.value=''; linkError.value=''; linkLoading.value=false;
+}
+function openProtectedLink(index) {
+  if (!email.cardProtected || !Number.isSafeInteger(email.emailId)) return;
+  resetLink(); linkIndex=index; linkDialog.value=true;
+}
+async function verifyLink() {
+  if (linkLoading.value || !linkPassword.value) return;
+  const request=++linkRequest;
+  linkLoading.value=true; linkError.value='';
+  try {
+    const result=await authorizeMailLink({emailId:email.emailId,linkIndex,version:Number(settingStore.settings.cardProtectionVersion),currentPassword:linkPassword.value});
+    if (request!==linkRequest || !linkDialog.value) return;
+    const target=new URL(result.url);
+    if (target.protocol!=='https:') throw Error(t('reqFailErrorMsg'));
+    linkUrl.value=target.href; linkHost.value=target.hostname; linkPassword.value='';
+  } catch (e) {
+    if (request===linkRequest && linkDialog.value) linkError.value=e.message || t('reqFailErrorMsg');
+  } finally {
+    if (request===linkRequest) linkLoading.value=false;
+  }
+}
 
 function openReply() {
   uiStore.writerRef.openReply(email)
@@ -420,6 +470,10 @@ const handleDelete = () => {
   word-break: break-word;
   margin: 0;
 }
+
+.protected-links, .link-actions { display:flex; flex-wrap:wrap; gap:10px; }
+.link-hint { line-height:1.6; margin-bottom:16px; overflow-wrap:anywhere; }
+.link-error { color:var(--el-color-danger); margin-bottom:12px; }
 
 .bottom-distance {
   margin-bottom: 30px;

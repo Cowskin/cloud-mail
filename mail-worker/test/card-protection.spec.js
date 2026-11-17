@@ -14,6 +14,8 @@ import protection from '../src/service/card-protection-service';
 import emailService from '../src/service/email-service';
 import { createCipher, deriveMaterial, validPassword } from '../src/utils/card-cipher';
 import { protectMail } from '../src/utils/protect-mail';
+import { mailLink, protectedMailLink } from '../src/utils/mail-links';
+import { authorizeMailLink } from '../src/service/mail-link-service';
 import jwtUtils from '../src/utils/jwt-utils';
 import kvConst from '../src/const/kv-const';
 import migration from '../migrations/20261116_card_protection.sql?raw';
@@ -237,6 +239,138 @@ describe('password lifecycle and concurrency', () => {
     expect(payload).not.toContain(card);
     expect(JSON.parse(payload).code).toBe(503);
     await expect(protectMail(context({db:{prepare(){throw Error('unavailable');}}}),{text:card})).rejects.toThrow('unavailable');
+  });
+});
+
+describe('mail links and single-link authorization', () => {
+  const authorize = (body={}, token=adminToken) => request('/email/authorizeLink', {
+    token, body:{emailId:1,linkIndex:0,version:2,currentPassword:password,...body}
+  });
+  it('keeps ordinary order/verification links without treating a gift-card footer as a gift message', async () => {
+    await enable();
+    const url='https://store.apple.com/order/status?token=synthetic-order-token';
+    const output=await protectMail(context(),{subject:'Action required for order W1234567890',text:'Payment methods include gift cards.',
+      content:`<a href="${url}" onclick="alert(1)" data-protected-link="99">Confirm payment</a><a href="http://example.test/help">Help</a>`});
+    const doc=parseHTML(output.content).document;
+    const link=doc.querySelector('a');
+    expect(link.getAttribute('href')).toBe(url);
+    expect(link.getAttribute('target')).toBe('_blank');
+    expect(link.getAttribute('rel')).toBe('noopener noreferrer');
+    expect(link.getAttribute('referrerpolicy')).toBe('no-referrer');
+    expect(output.content).not.toMatch(/onclick|data-protected-link/);
+    expect(doc.querySelectorAll('a[href]')).toHaveLength(2);
+    expect(mailLink('https://example.test/?discount=25%25').kind).toBe('safe');
+  });
+  it('protects encoded codes, redirect wrappers, redemption labels and opaque gift links; blocks unsafe destinations', () => {
+    for (const [url,gift,label] of [
+      [`https://example.test/?pin=%58DEM12345678ABCD`,false,'Open'],
+      ['https://example.test/?next=https%253A%252F%252Fexample.test%252Fredeem',false,'Open'],
+      ['https://example.test/opaque',false,'Redeem Now'],
+      ['https://example.test/opaque?t=synthetic',true,'Open'],
+      ['https://support.apple.com/123456?next=synthetic',true,'Support'],
+    ]) expect(mailLink(url,gift,label).kind).toBe('protected');
+    for (const url of ['javascript:alert(1)','data:text/html,hello','//example.test/path','https://user:pass@example.test',
+      'https://example.test/\npath','http://example.test/redeem','https://example.test/'+ 'a'.repeat(8192)]) {
+      expect(mailLink(url).kind).toBe('blocked');
+    }
+    expect(mailLink('https://support.apple.com/118245',true).kind).toBe('safe');
+    expect(mailLink('https://www.apple.com/shop/help',true).kind).toBe('safe');
+    expect(mailLink('https://support.apple.com.evil.test/118245',true).kind).toBe('protected');
+  });
+  it('hides opaque URLs from text, split spans and attributes, and preserves original anchor positions', async () => {
+    await enable();
+    const url='https://example.test/opaque?token=synthetic-secret';
+    const input={subject:'An Apple Gift Card',text:url,
+      content:`<form><a href="https://example.test/discarded">Hidden</a></form><a href="https://support.apple.com/118245">Support</a>
+      <a href="${url}" title="${url}" data-protected-link="99"><b>Open gift</b></a><p>https://example.test/<span>opaque?token=synthetic-secret</span></p>`};
+    const output=await protectMail(context(),input);
+    expect(JSON.stringify(output)).not.toContain('synthetic-secret');
+    const doc=parseHTML(output.content).document;
+    expect(doc.querySelector('[data-protected-link]').getAttribute('data-protected-link')).toBe('2');
+    expect(protectedMailLink(input,2)).toBe(url);
+    expect(protectedMailLink(input,1)).toBeNull();
+  });
+  it('uses HTML gift context consistently for text fields and keeps batch messages isolated', async () => {
+    await enable();
+    const url='https://example.test/opaque?token=synthetic-secret';
+    const output=await protectMail(context(),[
+      {subject:'Delivery',text:url,content:`<p>Gift Card <span>PIN</span></p><a href="${url}">Open</a>`},
+      {subject:'Verify order',text:url,content:`<a href="${url}">Verify</a>`}
+    ]);
+    expect(JSON.stringify(output[0])).not.toContain('synthetic-secret');
+    expect(output[1].text).toBe(url);
+    expect(parseHTML(output[1].content).document.querySelector('a').getAttribute('href')).toBe(url);
+    const html=`<p>Gift Card PIN: ${card}</p><a href="${url}">Open</a>`;
+    const copies=await protectMail(context(),{content:html,html});
+    expect(copies.content).toBe(copies.html);
+    expect(copies.html).toContain(expected);
+    expect(copies.html).not.toContain('synthetic-secret');
+  });
+  it('supports pure text mail using original URL indexes', async () => {
+    await enable();
+    const mail={subject:'Gift Card',text:'https://support.apple.com/118245 https://example.test/opaque?t=synthetic'};
+    const output=await protectMail(context(),mail);
+    expect(output.protectedLinks).toEqual([1]);
+    expect(output.text).not.toContain('t=synthetic');
+    expect(protectedMailLink(mail,1)).toBe('https://example.test/opaque?t=synthetic');
+    await env.db.prepare('UPDATE email SET subject=?,text=?,content=? WHERE email_id=1').bind(mail.subject,mail.text,'').run();
+    expect(await (await authorize({linkIndex:1})).json()).toMatchObject({code:200,data:{url:'https://example.test/opaque?t=synthetic'}});
+  });
+  it('returns only the selected source link after password verification and leaves policy and raw mail intact', async () => {
+    await enable();
+    const before=await protection.read(context());
+    const response=await authorize();
+    expect(response.headers.get('Cache-Control')).toContain('no-store');
+    expect(response.headers.get('Referrer-Policy')).toBe('no-referrer');
+    expect(await response.json()).toEqual({code:200,message:'success',data:{url:`https://example.test/redeem?code=${card}`}});
+    expect(await protection.read(context())).toEqual(before);
+    expect(await env.db.prepare('SELECT text FROM email WHERE email_id=1').first('text')).toBe(card);
+    expect((await (await authorize({linkIndex:100,url:'https://evil.test'})).json()).code).toBe(400);
+    const read=await (await request('/email/list?accountId=1&allReceive=1&type=0&size=50')).text();
+    expect(read).not.toContain(card);
+    expect(read).not.toContain('example.test/redeem');
+  });
+  it('checks login and mail ownership before password attempts', async () => {
+    await enable();
+    expect((await (await authorize({},'')).json()).code).toBe(401);
+    expect((await (await authorize({},userToken)).json()).code).toBe(403);
+    expect((await protection.read(context())).attempts).toBe(0);
+    await env.db.prepare('UPDATE email SET content=? WHERE email_id=2').bind('<a href="https://example.test/redeem">Redeem</a>').run();
+    expect((await (await authorize({emailId:2},userToken)).json()).code).toBe(200);
+    await env.db.prepare('UPDATE account SET is_del=1 WHERE account_id=2').run();
+    expect((await (await authorize({emailId:2},userToken)).json()).code).toBe(403);
+    await env.db.prepare('UPDATE email SET is_del=1 WHERE email_id=1').run();
+    expect((await (await authorize()).json()).code).toBe(404);
+  });
+  it('rejects wrong passwords, stale or disabled policy, invalid indexes and safe/blocked links', async () => {
+    await enable();
+    for (const body of [{version:1},{emailId:-1},{linkIndex:-1},{linkIndex:'0'},{currentPassword:'wrong'}]) {
+      const result=await (await authorize(body)).json();
+      expect(result.code).not.toBe(200);
+      expect(JSON.stringify(result)).not.toContain(card);
+    }
+    await env.db.prepare('UPDATE email SET content=? WHERE email_id=1').bind('<a href="https://support.apple.com/118245">Support</a><a href="javascript:alert(1)">Open</a>').run();
+    expect((await (await authorize()).json()).code).toBe(400);
+    expect((await (await authorize({linkIndex:1})).json()).code).toBe(400);
+    await protection.update(context(),{action:'disable',version:2,currentPassword:password});
+    expect((await (await authorize({version:3})).json()).code).toBe(409);
+  });
+  it('shares password attempt limits with settings and rechecks policy after verification', async () => {
+    await enable();
+    for (let i=0;i<4;i++) expect((await (await authorize({currentPassword:'wrong'})).json()).code).toBe(400);
+    await expect(protection.update(context(),{action:'disable',version:2,currentPassword:'wrong'})).rejects.toMatchObject({code:400});
+    expect((await (await authorize()).json()).code).toBe(429);
+    await env.db.prepare('UPDATE card_protection SET attempts=0,window_start=0').run();
+    const c=context(); c.set('user',{userId:1,email:'admin@example.test'});
+    // Directly model a policy change between successful authorization and reply.
+    const original=protection.authorize.bind(protection);
+    const changed=vi.spyOn(protection,'authorize').mockImplementation(async (...args)=> {
+      const row=await original(...args);
+      await env.db.prepare('UPDATE card_protection SET version=version+1').run();
+      return row;
+    });
+    try { await expect(authorizeMailLink(c,{emailId:1,linkIndex:0,version:2,currentPassword:password})).rejects.toMatchObject({code:409}); }
+    finally { changed.mockRestore(); }
   });
 });
 

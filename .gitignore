@@ -41,3 +41,4 @@ mail-vue/dist
 *.bundle
 !mail-worker/migrations/*.sql
 !mail-worker/test/fixtures/*.sql
+!mail-worker/prototypes/gift-order/schema.sql
